@@ -12,7 +12,10 @@ PROTOS = messages.proto
 protoc_cc.name          = protoc ${QMAKE_FILE_IN}
 protoc_cc.input         = PROTOS
 protoc_cc.output        = $$QM_GEN_DIR/${QMAKE_FILE_BASE}.pb.cc
-protoc_cc.commands      = $$shell_path($$PROTOC) --proto_path=$$shell_path($$PWD) --cpp_out=$$shell_path($$QM_GEN_DIR) ${QMAKE_FILE_NAME}
+protoc_cc.commands      = $$shell_quote($$shell_path($$PROTOC)) \
+                          --proto_path=$$shell_quote($$shell_path($$PWD)) \
+                          --cpp_out=$$shell_quote($$shell_path($$QM_GEN_DIR)) \
+                          ${QMAKE_FILE_BASE}${QMAKE_FILE_EXT}
 protoc_cc.variable_out  = SOURCES
 protoc_cc.dependency_type = TYPE_C
 

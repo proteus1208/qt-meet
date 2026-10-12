@@ -1,9 +1,12 @@
 #include "HttpMediaServer.h"
 
+#include <QTcpServer>
+
+#ifdef QM_HAVE_HTTPSERVER
 #include <QHttpServer>
 #include <QHttpServerRequest>
 #include <QHttpServerResponse>
-#include <QTcpServer>
+#endif
 
 namespace qm {
 
@@ -72,6 +75,7 @@ void HttpMediaServer::setupRoutes()
 {
 }
 
+#ifdef QM_HAVE_HTTPSERVER
 QHttpServerResponse HttpMediaServer::serveHosted(const QString &relativePath, const QHttpServerRequest &request)
 {
     Q_UNUSED(relativePath)
@@ -92,6 +96,7 @@ QHttpServerResponse HttpMediaServer::serveFileRange(const QString &absolutePath,
     Q_UNUSED(request)
     return QHttpServerResponse(QHttpServerResponse::StatusCode::NotImplemented);
 }
+#endif
 
 bool HttpMediaServer::parseRange(const QByteArray &header, qint64 size, qint64 &from, qint64 &to)
 {

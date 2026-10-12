@@ -3,6 +3,7 @@
 # PROTOBUF_LIBS      optional override of the link line (protobuf >= 22 also needs abseil libs)
 
 PROTOBUF_DIR = $$(PROTOBUF_DIR)
+win32:isEmpty(PROTOBUF_DIR): PROTOBUF_DIR = D:/Apps/protobuf_21_mingw
 
 isEmpty(PROTOBUF_DIR) {
     PROTOC = protoc

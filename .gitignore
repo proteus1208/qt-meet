@@ -1,0 +1,57 @@
+# Planning / reference documents (kept locally, not committed)
+Reference/
+*.plan.md
+
+# qmake / build output
+build*/
+bin/
+lib/
+gen/
+Makefile*
+*.o
+*.obj
+*.a
+*.lib
+*.exp
+*.ilk
+*.pdb
+*.exe
+*.dll
+*.so
+*.so.*
+moc_*.cpp
+moc_*.h
+moc_predefs.h
+qrc_*.cpp
+ui_*.h
+*.pb.cc
+*.pb.h
+.qmake.stash
+object_script.*
+*_plugin_import.cpp
+*_qmlcache.qrc
+qmlcache_loader.cpp
+
+# Qt Creator
+*.pro.user
+*.pro.user.*
+CMakeLists.txt.user*
+*.autosave
+
+# IDEs
+.vs/
+.vscode/
+.idea/
+*.suo
+*.user
+
+# Runtime data
+*.db
+*.db-journal
+*.log
+*.ini
+data/
+
+# OS
+Thumbs.db
+.DS_Store

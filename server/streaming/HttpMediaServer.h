@@ -41,9 +41,11 @@ public:
 
 private:
     void setupRoutes();
+#ifdef QM_HAVE_HTTPSERVER
     QHttpServerResponse serveHosted(const QString &relativePath, const QHttpServerRequest &request);
     QHttpServerResponse serveBlob(const QString &fileId, const QHttpServerRequest &request);
     QHttpServerResponse serveFileRange(const QString &absolutePath, const QHttpServerRequest &request);
+#endif
 
     static bool parseRange(const QByteArray &header, qint64 size, qint64 &from, qint64 &to);
 
