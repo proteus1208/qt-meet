@@ -69,7 +69,7 @@ RESOURCES += server.qrc
 CERT_SRC = $$shell_path($$QM_ROOT/server/certs)
 CERT_DST = $$shell_path($$DESTDIR/certs)
 win32 {
-    QMAKE_POST_LINK += $$quote(if not exist $$CERT_DST mkdir $$CERT_DST) $$escape_expand(\\n\\t)
+    QMAKE_POST_LINK += if not exist $$shell_quote($$CERT_DST) mkdir $$shell_quote($$CERT_DST) $$escape_expand(\\n\\t)
     QMAKE_POST_LINK += $$QMAKE_COPY $$shell_quote($$CERT_SRC\\server.crt) $$shell_quote($$CERT_DST\\server.crt) $$escape_expand(\\n\\t)
     QMAKE_POST_LINK += $$QMAKE_COPY $$shell_quote($$CERT_SRC\\server.key) $$shell_quote($$CERT_DST\\server.key) $$escape_expand(\\n\\t)
     QMAKE_POST_LINK += $$QMAKE_COPY $$shell_quote($$CERT_SRC\\ca.crt) $$shell_quote($$CERT_DST\\ca.crt) $$escape_expand(\\n\\t)

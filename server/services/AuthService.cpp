@@ -1,17 +1,35 @@
 #include "AuthService.h"
 
 #include <QCryptographicHash>
+#include <QPasswordDigestor>
 #include <QRandomGenerator>
 
 #include "common/EnvelopeFactory.h"
 #include "common/Ids.h"
 #include "common/Logger.h"
 #include "net/SessionRegistry.h"
-#include "storage/InMemoryUsers.h"
 #include "storage/StorageManager.h"
 #include "streaming/HttpMediaServer.h"
 
 namespace qm {
+
+namespace {
+
+constexpr int kPbkdf2Iterations = 100000;
+constexpr int kHashBytes = 32;
+constexpr int kSaltBytes = 16;
+
+bool constantTimeEquals(const QByteArray &a, const QByteArray &b)
+{
+    if (a.size() != b.size())
+        return false;
+    char diff = 0;
+    for (qsizetype i = 0; i < a.size(); ++i)
+        diff |= char(a[i] ^ b[i]);
+    return diff == 0;
+}
+
+} // namespace
 
 AuthService::AuthService(StorageManager *storage, SessionRegistry *sessions,
                          HttpMediaServer *http, const ServerSettings &settings)
@@ -20,7 +38,6 @@ AuthService::AuthService(StorageManager *storage, SessionRegistry *sessions,
     , m_http(http)
     , m_settings(settings)
 {
-    Q_UNUSED(m_storage)
 }
 
 void AuthService::handle(const RequestContext &context, const proto::Envelope &envelope)
@@ -39,18 +56,16 @@ void AuthService::handle(const RequestContext &context, const proto::Envelope &e
 
 QByteArray AuthService::hashPassword(const QString &password, const QByteArray &salt)
 {
-    QCryptographicHash hash(QCryptographicHash::Sha256);
-    hash.addData(salt);
-    hash.addData(password.toUtf8());
-    return hash.result().toHex();
+    return QPasswordDigestor::deriveKeyPbkdf2(QCryptographicHash::Sha256, password.toUtf8(), salt,
+                                              kPbkdf2Iterations, kHashBytes);
 }
 
 QByteArray AuthService::newSalt()
 {
-    QByteArray salt(16, Qt::Uninitialized);
+    QByteArray salt(kSaltBytes, Qt::Uninitialized);
     for (int i = 0; i < salt.size(); ++i)
-        salt[i] = char(QRandomGenerator::global()->bounded(256));
-    return salt.toHex();
+        salt[i] = char(QRandomGenerator::system()->bounded(256));
+    return salt;
 }
 
 void AuthService::onLogin(const RequestContext &context, const proto::Envelope &envelope)
@@ -70,8 +85,7 @@ void AuthService::onLogin(const RequestContext &context, const proto::Envelope &
         return;
     }
 
-    auto &users = InMemoryUsers::instance();
-    std::optional<UserRecord> user = users.findByName(username);
+    std::optional<UserRecord> user = m_storage->userByName(username).result();
 
     if (req.register_new()) {
         if (user) {
@@ -80,14 +94,23 @@ void AuthService::onLogin(const RequestContext &context, const proto::Envelope &
             m_sessions->sendToConn(context.conn, reply);
             return;
         }
-        const QByteArray salt = newSalt();
-        user = users.create(username,
-                            displayName.isEmpty() ? username : displayName,
-                            hashPassword(password, salt),
-                            salt);
+        UserRecord record;
+        record.username = username;
+        record.displayName = displayName.isEmpty() ? username : displayName;
+        record.salt = newSalt();
+        record.passwordHash = hashPassword(password, record.salt);
+        user = m_storage->createUser(record).result();
+        if (!user) {
+            // A concurrent registration may have taken the name between lookup and insert.
+            const bool taken = m_storage->userByName(username).result().has_value();
+            res->set_ok(false);
+            res->set_error(taken ? proto::ERR_CONFLICT : proto::ERR_INTERNAL);
+            m_sessions->sendToConn(context.conn, reply);
+            return;
+        }
         qCInfo(lcApp) << "Registered user" << username << "id" << user->id;
     } else {
-        if (!user || user->passwordHash != hashPassword(password, user->salt)) {
+        if (!user || !constantTimeEquals(user->passwordHash, hashPassword(password, user->salt))) {
             res->set_ok(false);
             res->set_error(proto::ERR_UNAUTHORIZED);
             m_sessions->sendToConn(context.conn, reply);
@@ -95,7 +118,7 @@ void AuthService::onLogin(const RequestContext &context, const proto::Envelope &
         }
     }
 
-    m_sessions->bind(context.conn, user->id);
+    m_sessions->bind(context.conn, user->id, user->displayName);
     if (m_http)
         m_http->issueToken(user->id);
 

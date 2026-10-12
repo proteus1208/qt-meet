@@ -51,6 +51,12 @@ bool ServerApp::start()
     }
 
     buildComponents();
+    if (!m_storage->start().result()) {
+        Q_EMIT errorOccurred(QStringLiteral("Cannot open database %1")
+                                 .arg(QDir::toNativeSeparators(databasePath())));
+        stop();
+        return false;
+    }
     registerHandlers();
 
     const int netThreads = m_settings.netThreads > 0
@@ -142,8 +148,14 @@ const ServerSettings &ServerApp::settings() const
     return m_settings;
 }
 
+QString ServerApp::databasePath() const
+{
+    return m_settings.dataDir + QStringLiteral("/qtmeet.db");
+}
+
 void ServerApp::buildComponents()
 {
+    m_storage = std::make_unique<StorageManager>(databasePath());
     m_sessions = std::make_unique<SessionRegistry>();
     m_http = std::make_unique<HttpMediaServer>();
     m_http->setBlobDir(m_settings.dataDir + QStringLiteral("/blobs"));
@@ -154,10 +166,10 @@ void ServerApp::buildComponents()
                              : qMax(2, QThread::idealThreadCount());
     m_dispatcher = std::make_unique<Dispatcher>(m_sessions.get(), handlers);
 
-    m_auth = std::make_unique<AuthService>(nullptr, m_sessions.get(), m_http.get(), m_settings);
-    m_users = std::make_unique<UserService>(nullptr, m_sessions.get());
-    m_chat = std::make_unique<ChatService>(nullptr, m_sessions.get());
-    m_files = std::make_unique<FileService>(nullptr, m_sessions.get(),
+    m_auth = std::make_unique<AuthService>(m_storage.get(), m_sessions.get(), m_http.get(), m_settings);
+    m_users = std::make_unique<UserService>(m_storage.get(), m_sessions.get());
+    m_chat = std::make_unique<ChatService>(m_storage.get(), m_sessions.get());
+    m_files = std::make_unique<FileService>(m_storage.get(), m_sessions.get(),
                                             m_settings.dataDir + QStringLiteral("/blobs"));
     m_folders = std::make_unique<FolderService>(m_sessions.get(), m_http.get());
     m_folders->setRoot(m_settings.hostedFolder);

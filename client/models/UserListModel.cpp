@@ -14,9 +14,23 @@ int UserListModel::rowCount(const QModelIndex &parent) const
 
 QVariant UserListModel::data(const QModelIndex &index, int role) const
 {
-    Q_UNUSED(index)
-    Q_UNUSED(role)
-    return {};
+    if (!index.isValid() || index.row() < 0 || index.row() >= m_users.size())
+        return {};
+
+    const proto::UserInfo &user = m_users.at(index.row());
+    switch (role) {
+    case UserIdRole:
+        return qint64(user.id());
+    case UsernameRole:
+        return QString::fromStdString(user.username());
+    case Qt::DisplayRole:
+    case DisplayNameRole:
+        return QString::fromStdString(user.display_name());
+    case PresenceRole:
+        return int(user.presence());
+    default:
+        return {};
+    }
 }
 
 QHash<int, QByteArray> UserListModel::roleNames() const
@@ -31,23 +45,55 @@ QHash<int, QByteArray> UserListModel::roleNames() const
 
 void UserListModel::setUsers(const QList<proto::UserInfo> &users)
 {
-    Q_UNUSED(users)
+    beginResetModel();
+    m_users = users;
+    endResetModel();
 }
 
-void UserListModel::updatePresence(UserId user, proto::Presence presence)
+bool UserListModel::updatePresence(UserId user, proto::Presence presence)
 {
-    Q_UNUSED(user)
-    Q_UNUSED(presence)
+    for (int row = 0; row < m_users.size(); ++row) {
+        if (m_users[row].id() != user)
+            continue;
+        if (m_users[row].presence() != presence) {
+            m_users[row].set_presence(presence);
+            const QModelIndex idx = index(row);
+            Q_EMIT dataChanged(idx, idx, {PresenceRole});
+        }
+        return true;
+    }
+    return false;
+}
+
+proto::Presence UserListModel::presenceOf(UserId user) const
+{
+    for (const proto::UserInfo &info : m_users) {
+        if (info.id() == user)
+            return info.presence();
+    }
+    return proto::PRESENCE_OFFLINE;
 }
 
 void UserListModel::clear()
 {
+    if (m_users.isEmpty())
+        return;
+    beginResetModel();
+    m_users.clear();
+    endResetModel();
 }
 
 QVariantMap UserListModel::get(int row) const
 {
-    Q_UNUSED(row)
-    return {};
+    if (row < 0 || row >= m_users.size())
+        return {};
+    const proto::UserInfo &user = m_users.at(row);
+    return {
+        {QStringLiteral("userId"), qint64(user.id())},
+        {QStringLiteral("username"), QString::fromStdString(user.username())},
+        {QStringLiteral("displayName"), QString::fromStdString(user.display_name())},
+        {QStringLiteral("presence"), int(user.presence())},
+    };
 }
 
 } // namespace qm

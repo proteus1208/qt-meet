@@ -52,6 +52,7 @@ private:
     void              buildComponents();
     void              registerHandlers();
     QSslConfiguration loadSsl() const;
+    QString           databasePath() const;
 
     ServerSettings m_settings;
     bool           m_running = false;

@@ -10,8 +10,44 @@ Page {
     readonly property Theme theme: Theme {}
     property int currentNav: 0 // 0 chats, 1 people, 2 meetings, 3 files
     property int selectedChat: 0
+    // True once a real user is picked from People; the demo chat pane is used otherwise.
+    readonly property bool peerMode: Chat.activePeerId !== 0
 
     background: Rectangle { color: page.theme.bg }
+
+    Component.onCompleted: Chat.searchUsers("")
+
+    function initialsOf(name) {
+        if (!name || name.length === 0)
+            return "?"
+        const parts = name.trim().split(" ").filter(p => p.length > 0)
+        if (parts.length >= 2)
+            return (parts[0][0] + parts[1][0]).toUpperCase()
+        return name.trim().substring(0, 2).toUpperCase()
+    }
+
+    readonly property var avatarPalette: ["#3B82F6", "#8B5CF6", "#F59E0B", "#10B981", "#EF4444", "#06B6D4", "#EC4899"]
+    function avatarColorFor(userId) {
+        return avatarPalette[Number(userId) % avatarPalette.length]
+    }
+
+    // Values match proto::Presence: 0 offline, 1 online, 2 busy, 3 in call.
+    function presenceColor(presence) {
+        switch (presence) {
+        case 1: return page.theme.success
+        case 2: return "#F59E0B"
+        case 3: return page.theme.danger
+        default: return page.theme.textDim
+        }
+    }
+    function presenceText(presence) {
+        switch (presence) {
+        case 1: return qsTr("Online")
+        case 2: return qsTr("Busy")
+        case 3: return qsTr("In call")
+        default: return qsTr("Offline")
+        }
+    }
 
     // Demo data until controllers feed real models
     ListModel {
@@ -223,15 +259,7 @@ Page {
 
                     Text {
                         anchors.centerIn: parent
-                        text: {
-                            const n = Session.displayName
-                            if (!n || n.length === 0)
-                                return "JD"
-                            const parts = n.trim().split(" ")
-                            if (parts.length >= 2)
-                                return (parts[0][0] + parts[1][0]).toUpperCase()
-                            return n.substring(0, 2).toUpperCase()
-                        }
+                        text: page.initialsOf(Session.displayName)
                         color: page.theme.accent
                         font.bold: true
                         font.pixelSize: 13
@@ -251,7 +279,10 @@ Page {
                         wrapMode: Text.WordWrap
                     }
                     background: Item {}
-                    onClicked: page.StackView.view.replace(Qt.resolvedUrl("LoginPage.qml"))
+                    onClicked: {
+                        Session.logout()
+                        page.StackView.view.replace(Qt.resolvedUrl("LoginPage.qml"))
+                    }
                 }
             }
         }
@@ -306,6 +337,11 @@ Page {
                             color: page.theme.text
                             font.pixelSize: 13
                             clip: true
+                            onTextChanged: {
+                                Chat.searchUsers(text)
+                                if (text.length > 0)
+                                    page.currentNav = 1
+                            }
                             Text {
                                 anchors.fill: parent
                                 verticalAlignment: Text.AlignVCenter
@@ -319,7 +355,100 @@ Page {
                 }
 
                 ListView {
+                    id: peopleList
+                    visible: page.currentNav === 1
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    clip: true
+                    spacing: 4
+                    model: Chat.searchResults
+
+                    delegate: Rectangle {
+                        id: personDelegate
+                        required property var model
+
+                        width: peopleList.width
+                        height: 60
+                        radius: page.theme.radiusSm
+                        color: page.peerMode && Chat.activePeerId === model.userId
+                               ? page.theme.surfaceHover
+                               : (personHover.hovered ? page.theme.surfaceAlt : "transparent")
+
+                        HoverHandler { id: personHover }
+
+                        RowLayout {
+                            anchors.fill: parent
+                            anchors.margins: 10
+                            spacing: 10
+
+                            Rectangle {
+                                Layout.preferredWidth: 40
+                                Layout.preferredHeight: 40
+                                radius: 20
+                                color: page.avatarColorFor(personDelegate.model.userId)
+
+                                Text {
+                                    anchors.centerIn: parent
+                                    text: page.initialsOf(personDelegate.model.displayName)
+                                    color: "white"
+                                    font.bold: true
+                                    font.pixelSize: 13
+                                }
+
+                                Rectangle {
+                                    anchors.right: parent.right
+                                    anchors.bottom: parent.bottom
+                                    width: 11
+                                    height: 11
+                                    radius: 5.5
+                                    color: page.presenceColor(personDelegate.model.presence)
+                                    border.color: page.theme.surface
+                                    border.width: 2
+                                }
+                            }
+
+                            ColumnLayout {
+                                Layout.fillWidth: true
+                                spacing: 2
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: personDelegate.model.displayName
+                                    color: page.theme.text
+                                    font.pixelSize: 14
+                                    font.bold: true
+                                    elide: Text.ElideRight
+                                }
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: "@" + personDelegate.model.username + "  ·  "
+                                          + page.presenceText(personDelegate.model.presence)
+                                    color: page.theme.textMuted
+                                    font.pixelSize: 12
+                                    elide: Text.ElideRight
+                                }
+                            }
+                        }
+
+                        MouseArea {
+                            anchors.fill: parent
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: Chat.openConversationWith(personDelegate.model.userId,
+                                                                 personDelegate.model.displayName)
+                        }
+                    }
+
+                    Label {
+                        anchors.centerIn: parent
+                        visible: peopleList.count === 0
+                        text: searchInput.text.length > 0 ? qsTr("No users found") : qsTr("No other users yet")
+                        color: page.theme.textDim
+                        font.pixelSize: 13
+                    }
+                }
+
+                ListView {
                     id: chatList
+                    visible: page.currentNav !== 1
                     Layout.fillWidth: true
                     Layout.fillHeight: true
                     clip: true
@@ -341,7 +470,7 @@ Page {
                         width: chatList.width
                         height: 68
                         radius: page.theme.radiusSm
-                        color: chatList.currentIndex === index ? page.theme.surfaceHover : "transparent"
+                        color: !page.peerMode && chatList.currentIndex === index ? page.theme.surfaceHover : "transparent"
 
                         RowLayout {
                             anchors.fill: parent
@@ -427,7 +556,10 @@ Page {
                         MouseArea {
                             anchors.fill: parent
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: page.selectedChat = index
+                            onClicked: {
+                                page.selectedChat = index
+                                Chat.openConversationWith(0, "")
+                            }
                         }
                     }
                 }
@@ -465,23 +597,25 @@ Page {
                         ColumnLayout {
                             spacing: 2
                             Label {
-                                text: chatModel.get(page.selectedChat).name
+                                text: page.peerMode ? Chat.activePeerName
+                                                    : chatModel.get(page.selectedChat).name
                                 color: page.theme.text
                                 font.pixelSize: 16
                                 font.bold: true
                             }
                             RowLayout {
                                 spacing: 6
+                                readonly property int presence: page.peerMode
+                                    ? Chat.activePeerPresence
+                                    : (chatModel.get(page.selectedChat).online ? 1 : 0)
                                 Rectangle {
                                     width: 8
                                     height: 8
                                     radius: 4
-                                    color: chatModel.get(page.selectedChat).online
-                                           ? page.theme.success : page.theme.textDim
+                                    color: page.presenceColor(parent.presence)
                                 }
                                 Label {
-                                    text: chatModel.get(page.selectedChat).online
-                                          ? qsTr("Online") : qsTr("Offline")
+                                    text: page.presenceText(parent.presence)
                                     color: page.theme.textMuted
                                     font.pixelSize: 12
                                 }
@@ -539,7 +673,7 @@ Page {
                     Layout.fillHeight: true
                     clip: true
                     spacing: 12
-                    model: messageModel
+                    model: page.peerMode ? null : messageModel
                     topMargin: 16
                     bottomMargin: 16
                     leftMargin: 20
@@ -703,11 +837,20 @@ Page {
                         }
                     }
 
+                    Label {
+                        anchors.centerIn: parent
+                        visible: page.peerMode
+                        text: qsTr("No messages with %1 yet.\nMessaging arrives in Phase 3.").arg(Chat.activePeerName)
+                        horizontalAlignment: Text.AlignHCenter
+                        color: page.theme.textDim
+                        font.pixelSize: 13
+                    }
+
                     footer: Row {
                         width: messageList.width - 40
                         leftPadding: 40
                         spacing: 8
-                        visible: true
+                        visible: !page.peerMode
 
                         Rectangle {
                             width: 48
@@ -798,7 +941,7 @@ Page {
                                     anchors.fill: parent
                                     cursorShape: Qt.PointingHandCursor
                                     onClicked: {
-                                        if (composer.text.trim().length === 0)
+                                        if (composer.text.trim().length === 0 || page.peerMode)
                                             return
                                         messageModel.append({
                                             fromMe: true,

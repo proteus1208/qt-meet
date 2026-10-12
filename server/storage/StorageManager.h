@@ -28,7 +28,7 @@ public:
     QFuture<std::optional<UserRecord>> userByName(const QString &username);
     QFuture<std::optional<UserRecord>> userById(UserId id);
     QFuture<std::optional<UserRecord>> createUser(const UserRecord &user);
-    QFuture<QList<UserRecord>>         searchUsers(const QString &query, int limit);
+    QFuture<QList<UserRecord>>         searchUsers(const QString &query, int limit, UserId excludeId = 0);
 
     // conversations + messages
     QFuture<ConversationId>         directConversation(UserId a, UserId b);   // get or create
@@ -57,6 +57,7 @@ private:
 
     bool openDatabase();
     bool migrate();
+    void closeDatabase();
 
     QString m_databasePath;
     QString m_connectionName;

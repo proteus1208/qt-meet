@@ -130,7 +130,7 @@ The server opens an admin window to choose the hosted folder and start / stop th
 | 0 | Module structure, protocol, class prototypes, QML skeleton | done |
 | Prep | Dev TLS certs (`server/certs`), FFmpeg + protobuf defaults | done |
 | 1 | TLS framing, login/register, online presence, admin user list | done |
-| 2 | Network thread pool polish, SQLite storage, full user search | pending |
+| 2 | SQLite storage, persistent users, full user search with live presence | done |
 | 3 | Chat and file sharing | pending |
 | 4 | FFmpeg helpers and media player | pending |
 | 5 | Hosted folder streaming | pending |
@@ -145,6 +145,16 @@ See [Reference/COMPLETION_PLAN.md](Reference/COMPLETION_PLAN.md) for the full co
 2. Run two `QtMeetClient` windows.
 3. On each, check **Create new account**, register different usernames, Sign in.
 4. Server admin **Online users** should list both display names.
+
+### Phase 2 quick test
+
+Users are stored in SQLite at `<dataDir>/qtmeet.db` (default on Windows: `%APPDATA%/QtMeet/QtMeetServer/data/qtmeet.db`). Passwords are PBKDF2-SHA256 hashed. Delete the file to reset all accounts.
+
+1. Register users A and B, then stop and restart the server.
+2. Sign in as A. On the main page, open **People** (or type in **Search people...**): every registered user is listed; typing `b` filters to B, shown with a grey (offline) dot.
+3. Sign in as B in a second client. B's dot in A's list turns green without refreshing.
+4. Registering an existing username (any letter case) fails with a conflict error (code 5).
+5. Clicking a user shows them in the conversation header with live presence (messaging arrives in Phase 3; the **Chats** tab still shows demo data).
 
 ## Licensing notes
 

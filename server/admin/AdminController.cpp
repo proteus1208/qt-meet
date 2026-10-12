@@ -5,7 +5,6 @@
 #include "ServerApp.h"
 #include "net/ConnectionManager.h"
 #include "net/SessionRegistry.h"
-#include "storage/InMemoryUsers.h"
 
 namespace qm {
 
@@ -78,7 +77,7 @@ void AdminController::refreshStats()
     int conns = 0;
     if (auto *sessions = m_server->sessions()) {
         for (UserId id : sessions->onlineUsers())
-            names.append(InMemoryUsers::instance().displayName(id));
+            names.append(sessions->displayName(id));
     }
     if (auto *cm = m_server->connections())
         conns = cm->connectionCount();

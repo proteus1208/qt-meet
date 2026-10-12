@@ -13,7 +13,7 @@ Page {
         target: Session
         function onSessionChanged() {
             if (Session.loggedIn)
-                page.StackView.view.replace(Qt.resolvedUrl("ContactsPage.qml"))
+                page.StackView.view.replace(Qt.resolvedUrl("HomePage.qml"))
         }
         function onLoginFailed(reason) {
             // errorString property already updated

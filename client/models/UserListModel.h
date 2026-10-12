@@ -23,7 +23,8 @@ public:
     QHash<int, QByteArray> roleNames() const override;
 
     void setUsers(const QList<proto::UserInfo> &users);
-    void updatePresence(UserId user, proto::Presence presence);
+    bool updatePresence(UserId user, proto::Presence presence);   // false if the user is not listed
+    proto::Presence presenceOf(UserId user) const;                 // PRESENCE_OFFLINE if not listed
     void clear();
 
     Q_INVOKABLE QVariantMap get(int row) const;

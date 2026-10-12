@@ -26,10 +26,11 @@ public:
     void registerConnection(ConnId conn, NetWorker *worker);
     void unregisterConnection(ConnId conn);
 
-    bool bind(ConnId conn, UserId user);       // after successful login
+    bool bind(ConnId conn, UserId user, const QString &displayName);   // after successful login
     void unbind(ConnId conn);
 
     UserId        userOf(ConnId conn) const;
+    QString       displayName(UserId user) const;
     QList<ConnId> connectionsOf(UserId user) const;
     bool          isOnline(UserId user) const;
     QList<UserId> onlineUsers() const;
@@ -48,6 +49,7 @@ private:
     QHash<ConnId, NetWorker *>  m_workers;
     QHash<ConnId, UserId>       m_connUser;
     QMultiHash<UserId, ConnId>  m_userConns;
+    QHash<UserId, QString>      m_names;
 };
 
 } // namespace qm
