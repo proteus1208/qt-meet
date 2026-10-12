@@ -1,0 +1,332 @@
+// Wire contract between QtMeetClient and QtMeetServer.
+// Every frame on the TLS connection is: uint32 big-endian length + serialized Envelope.
+
+syntax = "proto3";
+
+package qm.proto;
+
+option optimize_for = SPEED;
+
+// ---------------------------------------------------------------- common
+
+enum ErrorCode {
+  ERR_NONE         = 0;
+  ERR_UNAUTHORIZED = 1;
+  ERR_FORBIDDEN    = 2;
+  ERR_NOT_FOUND    = 3;
+  ERR_INVALID      = 4;
+  ERR_CONFLICT     = 5;
+  ERR_BUSY         = 6;
+  ERR_INTERNAL     = 7;
+}
+
+enum Presence {
+  PRESENCE_OFFLINE = 0;
+  PRESENCE_ONLINE  = 1;
+  PRESENCE_BUSY    = 2;
+  PRESENCE_IN_CALL = 3;
+}
+
+enum MediaKind {
+  MEDIA_AUDIO  = 0;
+  MEDIA_VIDEO  = 1;
+  MEDIA_SCREEN = 2;
+}
+
+message UserInfo {
+  uint64   id           = 1;
+  string   username     = 2;
+  string   display_name = 3;
+  Presence presence     = 4;
+}
+
+message Error {
+  ErrorCode code    = 1;
+  string    message = 2;
+}
+
+// ---------------------------------------------------------------- auth
+
+message LoginReq {
+  string username       = 1;
+  string password       = 2;
+  bool   register_new   = 3;
+  string display_name   = 4;
+  string client_version = 5;
+}
+
+message LoginRes {
+  bool      ok             = 1;
+  ErrorCode error          = 2;
+  UserInfo  me             = 3;
+  string    session_token  = 4;  // also used as HTTP media token
+  string    http_base_url  = 5;  // e.g. http://10.1.2.3:7401
+  uint32    rtc_port_min   = 6;
+  uint32    rtc_port_max   = 7;
+}
+
+message Logout {}
+
+// ---------------------------------------------------------------- users
+
+message UserSearchReq {
+  string query = 1;
+  uint32 limit = 2;
+}
+
+message UserSearchRes {
+  repeated UserInfo users = 1;
+}
+
+message PresenceEvt {
+  uint64   user_id  = 1;
+  Presence presence = 2;
+}
+
+// ---------------------------------------------------------------- chat
+
+message ChatAttachment {
+  string file_id = 1;
+  string name    = 2;
+  uint64 size    = 3;
+  string mime    = 4;
+}
+
+// conversation_id == 0 means "direct conversation with to_user_id" (created on demand).
+message ChatSend {
+  uint64         conversation_id = 1;
+  uint64         to_user_id      = 2;
+  string         client_msg_id   = 3;
+  string         text            = 4;
+  ChatAttachment attachment      = 5;
+}
+
+message ChatEvt {
+  uint64         message_id      = 1;
+  uint64         conversation_id = 2;
+  uint64         from_user_id    = 3;
+  string         client_msg_id   = 4;
+  string         text            = 5;
+  ChatAttachment attachment      = 6;
+  int64          timestamp_ms    = 7;
+}
+
+message ChatHistoryReq {
+  uint64 conversation_id   = 1;
+  uint64 peer_user_id      = 2;
+  uint64 before_message_id = 3;
+  uint32 limit             = 4;
+}
+
+message ChatHistoryRes {
+  uint64           conversation_id = 1;
+  repeated ChatEvt messages        = 2;
+  bool             has_more        = 3;
+}
+
+// ---------------------------------------------------------------- file share (upload over TCP, download over HTTP)
+
+message FileOffer {
+  string transfer_id     = 1;
+  string name            = 2;
+  uint64 size            = 3;
+  string sha256          = 4;
+  string mime            = 5;
+  uint64 conversation_id = 6;
+  uint64 to_user_id      = 7;
+}
+
+message FileAccept {
+  string transfer_id   = 1;
+  string file_id       = 2;
+  uint64 resume_offset = 3;
+  uint32 chunk_size    = 4;
+}
+
+message FileChunk {
+  string transfer_id = 1;
+  uint64 offset      = 2;
+  bytes  data        = 3;
+}
+
+message FileAck {
+  string transfer_id = 1;
+  uint64 received    = 2;
+}
+
+message FileDone {
+  string    transfer_id = 1;
+  string    file_id     = 2;
+  bool      ok          = 3;
+  ErrorCode error       = 4;
+}
+
+// ---------------------------------------------------------------- calls and RTC signaling
+
+enum CallKind {
+  CALL_AUDIO = 0;
+  CALL_VIDEO = 1;
+}
+
+message CallInvite {
+  string   call_id      = 1;
+  uint64   from_user_id = 2;
+  uint64   to_user_id   = 3;
+  CallKind kind         = 4;
+}
+
+message CallAnswer {
+  string call_id  = 1;
+  bool   accepted = 2;
+}
+
+message CallHangup {
+  string call_id = 1;
+  string reason  = 2;
+}
+
+message SessionDescription {
+  string type = 1;  // "offer" | "answer"
+  string sdp  = 2;
+}
+
+message IceCandidate {
+  string candidate = 1;
+  string mid       = 2;
+}
+
+// session_id is a call_id or a meeting_id; both are SFU rooms on the server.
+message RtcSignal {
+  string session_id = 1;
+  oneof payload {
+    SessionDescription sdp       = 2;
+    IceCandidate       candidate = 3;
+  }
+}
+
+message MediaState {
+  string session_id = 1;
+  bool   audio_on   = 2;
+  bool   video_on   = 3;
+}
+
+// ---------------------------------------------------------------- meetings
+
+message TrackInfo {
+  string    mid   = 1;
+  uint32    ssrc  = 2;
+  MediaKind kind  = 3;
+  uint32    layer = 4;  // simulcast layer: 0 = high, 1 = low
+}
+
+message Participant {
+  UserInfo           user     = 1;
+  bool               audio_on = 2;
+  bool               video_on = 3;
+  repeated TrackInfo tracks   = 4;
+}
+
+message MeetingCreate {
+  string title = 1;
+  bool   video = 2;
+}
+
+message MeetingCreated {
+  string meeting_id = 1;
+  string code       = 2;
+}
+
+message MeetingJoin {
+  string code  = 1;
+  bool   audio = 2;
+  bool   video = 3;
+}
+
+message MeetingJoined {
+  string               meeting_id      = 1;
+  string               title           = 2;
+  string               code            = 3;
+  uint64               conversation_id = 4;
+  repeated Participant participants    = 5;
+}
+
+message MeetingLeave {
+  string meeting_id = 1;
+}
+
+message ParticipantEvt {
+  enum Change {
+    JOINED  = 0;
+    LEFT    = 1;
+    UPDATED = 2;
+  }
+  string      meeting_id  = 1;
+  Change      change      = 2;
+  Participant participant = 3;
+}
+
+// ---------------------------------------------------------------- hosted folder streaming
+
+message DirEntry {
+  string name        = 1;
+  bool   is_dir      = 2;
+  uint64 size        = 3;
+  int64  modified_ms = 4;
+  string mime        = 5;
+}
+
+message DirListReq {
+  string path = 1;  // relative to hosted root, "/" separated
+}
+
+message DirListRes {
+  string            path            = 1;
+  repeated DirEntry entries         = 2;
+  string            http_url_prefix = 3;
+}
+
+// ---------------------------------------------------------------- envelope
+
+message Envelope {
+  uint64 seq      = 1;
+  uint64 reply_to = 2;  // seq of the request this answers, 0 for events
+
+  oneof body {
+    LoginReq       login_req        = 10;
+    LoginRes       login_res        = 11;
+    Logout         logout           = 12;
+
+    UserSearchReq  user_search_req  = 20;
+    UserSearchRes  user_search_res  = 21;
+    PresenceEvt    presence_evt     = 22;
+
+    ChatSend       chat_send        = 30;
+    ChatEvt        chat_evt         = 31;
+    ChatHistoryReq chat_history_req = 32;
+    ChatHistoryRes chat_history_res = 33;
+
+    FileOffer      file_offer       = 40;
+    FileAccept     file_accept      = 41;
+    FileChunk      file_chunk       = 42;
+    FileAck        file_ack         = 43;
+    FileDone       file_done        = 44;
+
+    CallInvite     call_invite      = 50;
+    CallAnswer     call_answer      = 51;
+    CallHangup     call_hangup      = 52;
+    RtcSignal      rtc_signal       = 53;
+    MediaState     media_state      = 54;
+
+    MeetingCreate  meeting_create   = 60;
+    MeetingCreated meeting_created  = 61;
+    MeetingJoin    meeting_join     = 62;
+    MeetingJoined  meeting_joined   = 63;
+    MeetingLeave   meeting_leave    = 64;
+    ParticipantEvt participant_evt  = 65;
+
+    DirListReq     dir_list_req     = 70;
+    DirListRes     dir_list_res     = 71;
+
+    Error          error            = 99;
+  }
+}
