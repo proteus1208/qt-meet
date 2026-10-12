@@ -1,36 +1,51 @@
 #include "EnvelopeFactory.h"
 
+#include <QAtomicInteger>
+
 namespace qm {
+
+namespace {
+QAtomicInteger<quint64> g_seq{1};
+}
 
 quint64 EnvelopeFactory::nextSeq()
 {
-    return 0;
+    return g_seq.fetchAndAddRelaxed(1);
 }
 
 proto::Envelope EnvelopeFactory::request()
 {
-    return {};
+    proto::Envelope env;
+    env.set_seq(nextSeq());
+    env.set_reply_to(0);
+    return env;
 }
 
 proto::Envelope EnvelopeFactory::event()
 {
-    return {};
+    proto::Envelope env;
+    env.set_seq(nextSeq());
+    env.set_reply_to(0);
+    return env;
 }
 
 proto::Envelope EnvelopeFactory::reply(const proto::Envelope &request)
 {
-    Q_UNUSED(request)
-    return {};
+    proto::Envelope env;
+    env.set_seq(nextSeq());
+    env.set_reply_to(request.seq());
+    return env;
 }
 
 proto::Envelope EnvelopeFactory::error(const proto::Envelope &request,
                                        proto::ErrorCode code,
                                        const QString &message)
 {
-    Q_UNUSED(request)
-    Q_UNUSED(code)
-    Q_UNUSED(message)
-    return {};
+    proto::Envelope env = reply(request);
+    auto *err = env.mutable_error();
+    err->set_code(code);
+    err->set_message(message.toStdString());
+    return env;
 }
 
 } // namespace qm

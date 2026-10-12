@@ -50,12 +50,13 @@ int main(int argc, char *argv[])
     const QString configPath = parser.isSet(QStringLiteral("config"))
                                    ? parser.value(QStringLiteral("config"))
                                    : qm::AppConfig::defaultPath(QStringLiteral("server"));
-    config.load(configPath);
+    config.load(configPath); // applies defaults when file is missing
 
     qm::ServerApp server(config.server());
 
     if (headless) {
-        server.start();
+        if (!server.start())
+            return 1;
         return app->exec();
     }
 

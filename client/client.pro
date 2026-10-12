@@ -28,6 +28,7 @@ HEADERS += \
     core/CallEngine.h \
     core/FileTransfer.h \
     core/NetworkClient.h \
+    core/NetworkWorker.h \
     models/ChatModel.h \
     models/ConversationModel.h \
     models/ParticipantModel.h \
@@ -45,6 +46,7 @@ SOURCES += \
     core/CallEngine.cpp \
     core/FileTransfer.cpp \
     core/NetworkClient.cpp \
+    core/NetworkWorker.cpp \
     models/ChatModel.cpp \
     models/ConversationModel.cpp \
     models/ParticipantModel.cpp \

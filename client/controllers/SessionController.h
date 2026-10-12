@@ -20,6 +20,7 @@ class SessionController : public QObject
     Q_PROPERTY(qint64 userId READ userIdForQml NOTIFY sessionChanged)
     Q_PROPERTY(QString displayName READ displayName NOTIFY sessionChanged)
     Q_PROPERTY(QString serverHost READ serverHost WRITE setServerHost NOTIFY serverHostChanged)
+    Q_PROPERTY(int serverPort READ serverPort WRITE setServerPort NOTIFY serverHostChanged)
     Q_PROPERTY(bool connected READ connected NOTIFY connectedChanged)
     Q_PROPERTY(QString errorString READ errorString NOTIFY errorChanged)
 
@@ -33,6 +34,8 @@ public:
     QString displayName() const;
     QString serverHost() const;
     void    setServerHost(const QString &host);
+    int     serverPort() const;
+    void    setServerPort(int port);
     bool    connected() const;
     QString errorString() const;
 
@@ -58,6 +61,7 @@ private:
     NetworkClient  *m_network = nullptr;
     proto::UserInfo m_me;
     QString         m_serverHost;
+    quint16         m_serverPort = 7400;
     QString         m_token;
     QString         m_httpBaseUrl;
     QString         m_error;

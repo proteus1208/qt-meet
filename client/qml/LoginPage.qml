@@ -7,6 +7,19 @@ Page {
     id: page
     title: qsTr("Sign in")
 
+    property bool registerMode: false
+
+    Connections {
+        target: Session
+        function onSessionChanged() {
+            if (Session.loggedIn)
+                page.StackView.view.replace(Qt.resolvedUrl("ContactsPage.qml"))
+        }
+        function onLoginFailed(reason) {
+            // errorString property already updated
+        }
+    }
+
     ColumnLayout {
         anchors.centerIn: parent
         width: Math.min(parent.width - 48, 360)
@@ -23,11 +36,18 @@ Page {
             Layout.fillWidth: true
             placeholderText: qsTr("Server address")
             text: Session.serverHost
+            onEditingFinished: Session.serverHost = text.trim()
         }
         TextField {
             id: userField
             Layout.fillWidth: true
             placeholderText: qsTr("Username")
+        }
+        TextField {
+            id: displayField
+            Layout.fillWidth: true
+            visible: page.registerMode
+            placeholderText: qsTr("Display name")
         }
         TextField {
             id: passwordField
@@ -44,17 +64,31 @@ Page {
             wrapMode: Text.Wrap
         }
 
+        BusyIndicator {
+            Layout.alignment: Qt.AlignHCenter
+            running: Session.busy
+            visible: running
+        }
+
+        CheckBox {
+            text: qsTr("Create new account")
+            checked: page.registerMode
+            onToggled: page.registerMode = checked
+        }
+
         RowLayout {
             Layout.fillWidth: true
             Button {
                 Layout.fillWidth: true
-                text: qsTr("Sign in")
-                onClicked: page.StackView.view.replace(Qt.resolvedUrl("ContactsPage.qml"))
-            }
-            Button {
-                Layout.fillWidth: true
-                text: qsTr("Register")
-                onClicked: page.StackView.view.replace(Qt.resolvedUrl("ContactsPage.qml"))
+                enabled: !Session.busy
+                text: page.registerMode ? qsTr("Register") : qsTr("Sign in")
+                onClicked: {
+                    Session.serverHost = hostField.text.trim()
+                    if (page.registerMode)
+                        Session.registerUser(userField.text.trim(), displayField.text.trim(), passwordField.text)
+                    else
+                        Session.login(userField.text.trim(), passwordField.text)
+                }
             }
         }
     }

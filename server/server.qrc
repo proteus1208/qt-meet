@@ -1,5 +1,6 @@
 <RCC>
     <qresource prefix="/">
         <file>qml/AdminMain.qml</file>
+        <file>qml/theme/Theme.qml</file>
     </qresource>
 </RCC>

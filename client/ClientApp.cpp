@@ -43,10 +43,13 @@ void ClientApp::registerQml()
 
 void ClientApp::start()
 {
+    m_network->start();
 }
 
 void ClientApp::shutdown()
 {
+    if (m_network)
+        m_network->shutdown();
 }
 
 void ClientApp::buildComponents()
@@ -66,7 +69,10 @@ void ClientApp::buildComponents()
     m_player = std::make_unique<MediaPlayer>();
 
     m_session = std::make_unique<SessionController>(m_network.get());
-    m_session->setServerHost(m_settings.serverHost);
+    m_session->setServerHost(m_settings.serverHost.isEmpty()
+                                 ? QStringLiteral("127.0.0.1")
+                                 : m_settings.serverHost);
+    m_session->setServerPort(m_settings.tcpPort);
     m_chat = std::make_unique<ChatController>(m_network.get(), m_session.get(), m_fileTransfer.get(),
                                               m_searchResults.get(), m_conversations.get(),
                                               m_messages.get(), m_transfers.get());

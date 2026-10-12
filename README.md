@@ -128,13 +128,23 @@ The server opens an admin window to choose the hosted folder and start / stop th
 | Step | Content | State |
 |---|---|---|
 | 0 | Module structure, protocol, class prototypes, QML skeleton | done |
-| 1 | TLS framing, login, user list | pending |
-| 2 | Network thread pool, dispatcher, storage, user search | pending |
+| Prep | Dev TLS certs (`server/certs`), FFmpeg + protobuf defaults | done |
+| 1 | TLS framing, login/register, online presence, admin user list | done |
+| 2 | Network thread pool polish, SQLite storage, full user search | pending |
 | 3 | Chat and file sharing | pending |
 | 4 | FFmpeg helpers and media player | pending |
 | 5 | Hosted folder streaming | pending |
 | 6 | 1:1 calls via SFU | pending |
 | 7 | Group meetings | pending |
+
+See [Reference/COMPLETION_PLAN.md](Reference/COMPLETION_PLAN.md) for the full completion roadmap.
+
+### Phase 1 quick test
+
+1. Run `QtMeetServer`, click **Start** (or `QtMeetServer --headless`).
+2. Run two `QtMeetClient` windows.
+3. On each, check **Create new account**, register different usernames, Sign in.
+4. Server admin **Online users** should list both display names.
 
 ## Licensing notes
 
