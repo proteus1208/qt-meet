@@ -1,5 +1,7 @@
 #include "CallController.h"
 
+#include <QFutureWatcher>
+
 #include "common/EnvelopeFactory.h"
 #include "common/Ids.h"
 #include "common/Logger.h"
@@ -73,6 +75,7 @@ void CallController::setMicEnabled(bool enabled)
     m_micEnabled = enabled;
     if (m_engine)
         m_engine->setMicEnabled(enabled);
+    postMediaState();
     Q_EMIT micEnabledChanged();
 }
 
@@ -88,6 +91,7 @@ void CallController::setCameraEnabled(bool enabled)
     m_cameraEnabled = enabled;
     if (m_engine)
         m_engine->setCameraEnabled(enabled);
+    postMediaState();
     Q_EMIT cameraEnabledChanged();
 }
 
@@ -165,6 +169,11 @@ void CallController::hangup()
     if (m_state == State::Idle)
         return;
 
+    if (m_state == State::InMeeting) {
+        leaveMeeting();
+        return;
+    }
+
     if (!m_sessionId.isEmpty() && m_session->loggedIn()) {
         proto::Envelope env = EnvelopeFactory::request();
         auto *h = env.mutable_call_hangup();
@@ -185,22 +194,101 @@ void CallController::hangup()
 
 void CallController::createMeeting(const QString &title, bool video)
 {
-    Q_UNUSED(title)
-    Q_UNUSED(video)
-    Q_EMIT errorOccurred(QStringLiteral("Meetings arrive in Phase 7"));
+    if (!m_session->loggedIn() || m_state != State::Idle)
+        return;
+
+    m_video = video;
+    m_cameraEnabled = video;
+    m_micEnabled = true;
+
+    proto::Envelope env = EnvelopeFactory::request();
+    auto *req = env.mutable_meeting_create();
+    req->set_title(title.trimmed().toStdString());
+    req->set_video(video);
+
+    auto *watcher = new QFutureWatcher<proto::Envelope>(this);
+    connect(watcher, &QFutureWatcher<proto::Envelope>::finished, this, [this, watcher, video] {
+        watcher->deleteLater();
+        try {
+            const proto::Envelope reply = watcher->result();
+            if (reply.has_error()) {
+                Q_EMIT errorOccurred(QString::fromStdString(reply.error().message()));
+                return;
+            }
+            if (reply.has_meeting_created()) {
+                m_sessionId = QString::fromStdString(reply.meeting_created().meeting_id());
+                m_meetingCode = QString::fromStdString(reply.meeting_created().code());
+                Q_EMIT meetingChanged();
+            }
+            // MeetingJoined arrives as a separate event and starts media.
+            Q_UNUSED(video)
+        } catch (const std::exception &ex) {
+            Q_EMIT errorOccurred(QString::fromUtf8(ex.what()));
+        }
+    });
+    watcher->setFuture(m_network->request(env, 15000));
 }
 
 void CallController::joinMeeting(const QString &code, bool audio, bool video)
 {
-    Q_UNUSED(code)
-    Q_UNUSED(audio)
-    Q_UNUSED(video)
-    Q_EMIT errorOccurred(QStringLiteral("Meetings arrive in Phase 7"));
+    if (!m_session->loggedIn() || m_state != State::Idle)
+        return;
+    const QString trimmed = code.trimmed();
+    if (trimmed.isEmpty()) {
+        Q_EMIT errorOccurred(QStringLiteral("Enter a meeting code"));
+        return;
+    }
+
+    m_video = video;
+    m_cameraEnabled = video;
+    m_micEnabled = audio;
+
+    proto::Envelope env = EnvelopeFactory::request();
+    auto *req = env.mutable_meeting_join();
+    req->set_code(trimmed.toStdString());
+    req->set_audio(audio);
+    req->set_video(video);
+
+    auto *watcher = new QFutureWatcher<proto::Envelope>(this);
+    connect(watcher, &QFutureWatcher<proto::Envelope>::finished, this, [this, watcher, video] {
+        watcher->deleteLater();
+        try {
+            const proto::Envelope reply = watcher->result();
+            if (reply.has_error()) {
+                Q_EMIT errorOccurred(QString::fromStdString(reply.error().message()));
+                return;
+            }
+            if (reply.has_meeting_joined())
+                enterMeeting(reply.meeting_joined(), video);
+        } catch (const std::exception &ex) {
+            Q_EMIT errorOccurred(QString::fromUtf8(ex.what()));
+        }
+    });
+    watcher->setFuture(m_network->request(env, 15000));
 }
 
 void CallController::leaveMeeting()
 {
-    hangup();
+    if (m_state != State::InMeeting && m_state != State::Idle)
+        return;
+    if (m_state == State::Idle)
+        return;
+
+    if (!m_sessionId.isEmpty() && m_session->loggedIn()) {
+        proto::Envelope env = EnvelopeFactory::request();
+        env.mutable_meeting_leave()->set_meeting_id(m_sessionId.toStdString());
+        m_network->post(env);
+    }
+    if (m_engine)
+        m_engine->stopSession();
+    m_participants->clear();
+    m_pendingSignals.clear();
+    m_sessionId.clear();
+    m_meetingCode.clear();
+    m_meetingTitle.clear();
+    setState(State::Idle);
+    Q_EMIT meetingChanged();
+    Q_EMIT callEnded(QStringLiteral("left"));
 }
 
 void CallController::attachVideoSink(qint64 userId, QVideoSink *sink)
@@ -239,11 +327,19 @@ void CallController::onEvent(const proto::Envelope &envelope)
         else
             m_pendingSignals.append(envelope.rtc_signal());
         break;
+    case proto::Envelope::kMeetingCreated:
+        m_sessionId = QString::fromStdString(envelope.meeting_created().meeting_id());
+        m_meetingCode = QString::fromStdString(envelope.meeting_created().code());
+        Q_EMIT meetingChanged();
+        break;
     case proto::Envelope::kMeetingJoined:
         onMeetingJoined(envelope.meeting_joined());
         break;
     case proto::Envelope::kParticipantEvt:
         onParticipantEvent(envelope.participant_evt());
+        break;
+    case proto::Envelope::kError:
+        Q_EMIT errorOccurred(QString::fromStdString(envelope.error().message()));
         break;
     default:
         break;
@@ -301,18 +397,32 @@ void CallController::onCallHangup(const proto::CallHangup &hangup)
 
 void CallController::onMeetingJoined(const proto::MeetingJoined &joined)
 {
-    Q_UNUSED(joined)
+    enterMeeting(joined, m_video);
 }
 
 void CallController::onParticipantEvent(const proto::ParticipantEvt &event)
 {
+    if (!m_sessionId.isEmpty()
+        && QString::fromStdString(event.meeting_id()) != m_sessionId
+        && m_state == State::InMeeting) {
+        return;
+    }
+
     switch (event.change()) {
     case proto::ParticipantEvt::JOINED:
     case proto::ParticipantEvt::UPDATED:
         m_participants->upsert(event.participant());
+        if (m_engine) {
+            QList<proto::TrackInfo> tracks;
+            for (const auto &t : event.participant().tracks())
+                tracks.append(t);
+            m_engine->setRemoteTracks(event.participant().user().id(), tracks);
+        }
         break;
     case proto::ParticipantEvt::LEFT:
         m_participants->remove(event.participant().user().id());
+        if (m_engine)
+            m_engine->detachRemoteSink(event.participant().user().id());
         break;
     }
 }
@@ -333,6 +443,56 @@ void CallController::flushPendingSignals()
     m_pendingSignals.clear();
     for (const proto::RtcSignal &signal : pending)
         m_engine->applySignal(signal);
+}
+
+void CallController::postMediaState()
+{
+    if (m_sessionId.isEmpty() || !m_session->loggedIn())
+        return;
+    if (m_state != State::InCall && m_state != State::InMeeting)
+        return;
+    proto::Envelope env = EnvelopeFactory::request();
+    auto *state = env.mutable_media_state();
+    state->set_session_id(m_sessionId.toStdString());
+    state->set_audio_on(m_micEnabled);
+    state->set_video_on(m_cameraEnabled);
+    m_network->post(env);
+}
+
+void CallController::enterMeeting(const proto::MeetingJoined &joined, bool video)
+{
+    if (!m_session->loggedIn())
+        return;
+
+    const QString meetingId = QString::fromStdString(joined.meeting_id());
+    if (m_state == State::InMeeting && m_sessionId == meetingId)
+        return;
+
+    m_sessionId = meetingId;
+    m_meetingCode = QString::fromStdString(joined.code());
+    m_meetingTitle = QString::fromStdString(joined.title());
+    m_video = video;
+
+    QList<proto::Participant> people;
+    for (const auto &p : joined.participants())
+        people.append(p);
+    m_participants->setParticipants(people, m_session->userId());
+
+    if (m_engine) {
+        m_engine->startSession(m_sessionId, true, video && m_cameraEnabled);
+        for (const auto &p : joined.participants()) {
+            if (p.user().id() == m_session->userId())
+                continue;
+            QList<proto::TrackInfo> tracks;
+            for (const auto &t : p.tracks())
+                tracks.append(t);
+            m_engine->setRemoteTracks(p.user().id(), tracks);
+        }
+        flushPendingSignals();
+    }
+
+    setState(State::InMeeting);
+    Q_EMIT meetingChanged();
 }
 
 } // namespace qm

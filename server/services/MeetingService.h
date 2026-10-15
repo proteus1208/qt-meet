@@ -22,6 +22,8 @@ class MeetingService : public QObject, public IHandler
     Q_OBJECT
 
 public:
+    static constexpr int kMaxMeetingMembers = 20;
+
     MeetingService(StorageManager *storage, SessionRegistry *sessions, Sfu *sfu, QObject *parent = nullptr);
 
     void handle(const RequestContext &context, const proto::Envelope &envelope) override;
@@ -31,14 +33,22 @@ public Q_SLOTS:
     void onSfuSignal(qm::UserId user, const qm::proto::RtcSignal &signal);
 
 private:
+    struct MemberMedia
+    {
+        bool audioOn = true;
+        bool videoOn = true;
+    };
+
     struct Room
     {
-        QString       roomId;
-        QString       code;           // empty for 1:1 calls
-        QString       title;
-        UserId        host = 0;
-        QSet<UserId>  members;
-        bool          isCall = false;
+        QString                    roomId;
+        QString                    code; // empty for 1:1 calls
+        QString                    title;
+        UserId                     host = 0;
+        ConversationId             conversationId = 0;
+        QSet<UserId>               members;
+        QHash<UserId, MemberMedia> media;
+        bool                       isCall = false;
     };
 
     void onCallInvite(const RequestContext &context, const proto::Envelope &envelope);
@@ -50,15 +60,19 @@ private:
     void onMeetingJoin(const RequestContext &context, const proto::Envelope &envelope);
     void onMeetingLeave(const RequestContext &context, const proto::Envelope &envelope);
 
-    void leaveRoom(const QString &roomId, UserId user);
-    void notifyParticipants(const Room &room, const proto::ParticipantEvt &event);
+    void              leaveRoom(const QString &roomId, UserId user, bool notifyLeft);
+    void              notifyParticipants(const Room &room, const proto::ParticipantEvt &event,
+                                         UserId except = 0);
+    proto::Participant makeParticipant(const Room &room, UserId user) const;
+    proto::MeetingJoined makeJoined(const Room &room) const;
+    bool              ensureRoomLoaded(const QString &code, Room *outRoom, QString *error);
 
-    StorageManager       *m_storage = nullptr;
-    SessionRegistry      *m_sessions = nullptr;
-    Sfu                  *m_sfu = nullptr;
-    QMutex                m_mutex;
-    QHash<QString, Room>  m_rooms;          // key = room id
-    QHash<QString, QString> m_codeToRoom;
+    StorageManager          *m_storage = nullptr;
+    SessionRegistry         *m_sessions = nullptr;
+    Sfu                     *m_sfu = nullptr;
+    QMutex                   m_mutex;
+    QHash<QString, Room>     m_rooms;       // key = room id
+    QHash<QString, QString>  m_codeToRoom;  // code -> room id
 };
 
 } // namespace qm

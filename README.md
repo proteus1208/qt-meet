@@ -135,7 +135,7 @@ The server opens an admin window to choose the hosted folder and start / stop th
 | 4 | FFmpeg helpers and media player | done |
 | 5 | Hosted folder streaming | done |
 | 6 | 1:1 calls via SFU | done |
-| 7 | Group meetings | pending |
+| 7 | Group meetings | done |
 
 See [Reference/COMPLETION_PLAN.md](Reference/COMPLETION_PLAN.md) for the full completion roadmap.
 
@@ -188,6 +188,12 @@ Requires libdatachannel (`DATACHANNEL_DIR`) and UDP 40000–40100 reachable to t
 2. A: **People** → select B → **Voice call** or **Video call**.
 3. B: incoming CallView → **Accept** (or **Reject**).
 4. Both sides: mute / camera / hang up; media flows client ↔ server SFU (not peer-to-peer).
+
+### Phase 7 quick test
+
+1. A: right panel **New meeting** → MeetingView shows a shareable code.
+2. B: **Join with code** → enter the code → both see each other in the grid (up to 20 participants).
+3. Mute / camera updates propagate; **Leave** removes a participant; the last leaver closes the meeting.
 
 ## Licensing notes
 

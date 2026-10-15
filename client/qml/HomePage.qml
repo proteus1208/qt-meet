@@ -77,10 +77,56 @@ Page {
         onAccepted: Chat.sendFile(selectedFile)
     }
 
+    JoinMeetingDialog {
+        id: joinMeetingDialog
+        onJoinRequested: function(code, video) {
+            Call.joinMeeting(code, true, video)
+        }
+    }
+
+    Dialog {
+        id: createMeetingDialog
+        title: qsTr("New meeting")
+        modal: true
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        onAccepted: Call.createMeeting(meetingTitleField.text.trim(), createWithCamera.checked)
+        onOpened: {
+            meetingTitleField.text = qsTr("Meeting")
+            createWithCamera.checked = true
+            meetingTitleField.forceActiveFocus()
+        }
+        ColumnLayout {
+            anchors.fill: parent
+            spacing: 8
+            Label { text: qsTr("Title") }
+            TextField {
+                id: meetingTitleField
+                Layout.preferredWidth: 260
+                placeholderText: qsTr("Team sync")
+            }
+            CheckBox {
+                id: createWithCamera
+                text: qsTr("Start with camera")
+                checked: true
+            }
+        }
+    }
+
     Connections {
         target: Call
         function onIncomingCall(callerName, video) {
             page.StackView.view.push(Qt.resolvedUrl("CallView.qml"))
+        }
+        function onStateChanged() {
+            if (Call.state !== 4) // InMeeting
+                return
+            if (page.StackView.view.currentItem
+                    && page.StackView.view.currentItem.objectName === "MeetingView")
+                return
+            page.StackView.view.push(Qt.resolvedUrl("MeetingView.qml"))
+        }
+        function onErrorOccurred(message) {
+            meetingErrorLabel.text = message
         }
     }
 
@@ -161,9 +207,7 @@ Page {
                                 cursorShape: Qt.PointingHandCursor
                                 onClicked: {
                                     page.currentNav = index
-                                    if (index === 2)
-                                        page.StackView.view.push(Qt.resolvedUrl("MeetingView.qml"))
-                                    else if (index === 3)
+                                    if (index === 3)
                                         page.StackView.view.push(Qt.resolvedUrl("ExplorerPage.qml"))
                                 }
                             }
@@ -880,107 +924,10 @@ Page {
                 anchors.margins: 14
                 spacing: 12
 
-                // Video call card
+                // Meetings
                 Rectangle {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 180
-                    radius: page.theme.radius
-                    color: "#0A0D14"
-                    clip: true
-
-                    // Remote video placeholder
-                    Rectangle {
-                        anchors.fill: parent
-                        gradient: Gradient {
-                            GradientStop { position: 0.0; color: "#1E293B" }
-                            GradientStop { position: 1.0; color: "#0F172A" }
-                        }
-                    }
-
-                    Rectangle {
-                        anchors.centerIn: parent
-                        width: 64
-                        height: 64
-                        radius: 32
-                        color: "#3B82F6"
-                        Text {
-                            anchors.centerIn: parent
-                            text: "AS"
-                            color: "white"
-                            font.bold: true
-                            font.pixelSize: 20
-                        }
-                    }
-
-                    Label {
-                        anchors.left: parent.left
-                        anchors.bottom: parent.bottom
-                        anchors.margins: 10
-                        text: qsTr("Alice Smith")
-                        color: "white"
-                        font.pixelSize: 12
-                        font.bold: true
-                    }
-
-                    Rectangle {
-                        anchors.right: parent.right
-                        anchors.top: parent.top
-                        anchors.margins: 8
-                        width: callBadge.implicitWidth + 16
-                        height: 22
-                        radius: 11
-                        color: Qt.rgba(0, 0, 0, 0.55)
-                        Label {
-                            id: callBadge
-                            anchors.centerIn: parent
-                            text: qsTr("In call • 12:34")
-                            color: "white"
-                            font.pixelSize: 10
-                        }
-                    }
-
-                    // PiP self view
-                    Rectangle {
-                        anchors.right: parent.right
-                        anchors.bottom: parent.bottom
-                        anchors.margins: 8
-                        width: 88
-                        height: 64
-                        radius: 8
-                        color: "#1E293B"
-                        border.color: page.theme.border
-                        border.width: 1
-
-                        Rectangle {
-                            anchors.centerIn: parent
-                            width: 28
-                            height: 28
-                            radius: 14
-                            color: page.theme.accentSoft
-                            Text {
-                                anchors.centerIn: parent
-                                text: "JD"
-                                color: page.theme.accent
-                                font.pixelSize: 10
-                                font.bold: true
-                            }
-                        }
-
-                        Label {
-                            anchors.left: parent.left
-                            anchors.bottom: parent.bottom
-                            anchors.margins: 4
-                            text: qsTr("You")
-                            color: "white"
-                            font.pixelSize: 9
-                        }
-                    }
-                }
-
-                // Participants
-                Rectangle {
-                    Layout.fillWidth: true
-                    Layout.preferredHeight: 160
+                    Layout.preferredHeight: 200
                     radius: page.theme.radius
                     color: page.theme.surfaceAlt
                     border.color: page.theme.border
@@ -989,70 +936,104 @@ Page {
                     ColumnLayout {
                         anchors.fill: parent
                         anchors.margins: 12
-                        spacing: 8
+                        spacing: 10
 
                         Label {
-                            text: qsTr("Participants (2)")
+                            text: qsTr("Meetings")
                             color: page.theme.text
                             font.pixelSize: 13
                             font.bold: true
                         }
 
-                        Repeater {
-                            model: [
-                                { name: "Alice Smith", initials: "AS", color: "#3B82F6", status: qsTr("Speaking") },
-                                { name: "You", initials: "JD", color: "#2563EB", status: qsTr("Online") }
-                            ]
-                            delegate: RowLayout {
-                                required property var modelData
-                                Layout.fillWidth: true
-                                spacing: 8
-
-                                Rectangle {
-                                    Layout.preferredWidth: 32
-                                    Layout.preferredHeight: 32
-                                    radius: 16
-                                    color: modelData.color
-                                    Text {
-                                        anchors.centerIn: parent
-                                        text: modelData.initials
-                                        color: "white"
-                                        font.pixelSize: 11
-                                        font.bold: true
-                                    }
-                                }
-
-                                ColumnLayout {
-                                    Layout.fillWidth: true
-                                    spacing: 0
-                                    Label {
-                                        text: modelData.name
-                                        color: page.theme.text
-                                        font.pixelSize: 12
-                                    }
-                                    Label {
-                                        text: modelData.status
-                                        color: modelData.status === qsTr("Speaking")
-                                               ? page.theme.success : page.theme.textMuted
-                                        font.pixelSize: 10
-                                    }
-                                }
-
-                                Text { text: "🎤"; font.pixelSize: 12 }
-                                Text { text: "📷"; font.pixelSize: 12 }
-                            }
+                        Label {
+                            Layout.fillWidth: true
+                            wrapMode: Text.WordWrap
+                            color: page.theme.textMuted
+                            font.pixelSize: 12
+                            text: Call.meetingCode.length
+                                  ? qsTr("Active code: %1").arg(Call.meetingCode)
+                                  : qsTr("Create a room and share the code, or join with a code.")
                         }
 
-                        Item { Layout.fillHeight: true }
+                        Label {
+                            id: meetingErrorLabel
+                            Layout.fillWidth: true
+                            wrapMode: Text.WordWrap
+                            color: "#DC2626"
+                            font.pixelSize: 11
+                            visible: text.length > 0
+                        }
+
+                        Button {
+                            Layout.fillWidth: true
+                            text: qsTr("New meeting")
+                            enabled: Session.loggedIn && Call.state === 0
+                            onClicked: createMeetingDialog.open()
+                        }
+                        Button {
+                            Layout.fillWidth: true
+                            text: qsTr("Join with code")
+                            enabled: Session.loggedIn && Call.state === 0
+                            onClicked: joinMeetingDialog.open()
+                        }
+                        Button {
+                            Layout.fillWidth: true
+                            text: qsTr("Open meeting")
+                            visible: Call.state === 4
+                            onClicked: page.StackView.view.push(Qt.resolvedUrl("MeetingView.qml"))
+                        }
+                    }
+                }
+
+                // Participants (live during call/meeting)
+                Rectangle {
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: 160
+                    radius: page.theme.radius
+                    color: page.theme.surfaceAlt
+                    border.color: page.theme.border
+                    border.width: 1
+                    visible: Call.state === 3 || Call.state === 4
+
+                    ColumnLayout {
+                        anchors.fill: parent
+                        anchors.margins: 12
+                        spacing: 8
 
                         Label {
-                            text: qsTr("Show all")
-                            color: page.theme.accent
-                            font.pixelSize: 12
-                            MouseArea {
-                                anchors.fill: parent
-                                cursorShape: Qt.PointingHandCursor
-                                onClicked: page.StackView.view.push(Qt.resolvedUrl("MeetingView.qml"))
+                            text: qsTr("Participants")
+                            color: page.theme.text
+                            font.pixelSize: 13
+                            font.bold: true
+                        }
+
+                        ListView {
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            clip: true
+                            model: Call.participants
+                            delegate: RowLayout {
+                                width: ListView.view.width
+                                spacing: 8
+                                required property string displayName
+                                required property bool audioOn
+                                required property bool videoOn
+
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: displayName
+                                    color: page.theme.text
+                                    font.pixelSize: 12
+                                    elide: Text.ElideRight
+                                }
+                                Label {
+                                    text: audioOn ? "🎤" : "🔇"
+                                    font.pixelSize: 12
+                                }
+                                Label {
+                                    text: videoOn ? "📷" : "—"
+                                    font.pixelSize: 12
+                                }
                             }
                         }
                     }

@@ -18,6 +18,7 @@
 #include "rtc/RtcPeer.h"
 #include "rtc/RtpDepacketizer.h"
 #include "rtc/RtpPacketizer.h"
+#include "rtc/RtpUtil.h"
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -148,6 +149,7 @@ void CallEngine::stopSession()
     m_audioOutput.reset();
     qDeleteAll(m_remoteByTrack);
     m_remoteByTrack.clear();
+    m_ssrcToUser.clear();
     m_audioTrack = m_videoTrack = m_videoLowTrack = -1;
     m_sessionId.clear();
 }
@@ -165,8 +167,10 @@ void CallEngine::applySignal(const proto::RtcSignal &signal)
 
 void CallEngine::setRemoteTracks(UserId publisher, const QList<proto::TrackInfo> &tracks)
 {
-    Q_UNUSED(publisher)
-    Q_UNUSED(tracks)
+    for (const proto::TrackInfo &track : tracks) {
+        if (track.ssrc() != 0)
+            m_ssrcToUser.insert(quint32(track.ssrc()), publisher);
+    }
 }
 
 void CallEngine::setMicEnabled(bool enabled)
@@ -238,15 +242,27 @@ void CallEngine::onCapturedAudio(const FrameRef &frame)
 
 void CallEngine::onRemoteRtp(int trackId, const QByteArray &packet)
 {
+    RtpInfo info;
+    UserId publisher = 0;
+    if (RtpUtil::parse(packet, info)) {
+        publisher = m_ssrcToUser.value(info.ssrc, 0);
+        // Opus / audio payload types — skip video decode path.
+        if (info.payloadType == 111 || info.payloadType == 96) {
+            // 96 often used for dynamic video too; prefer kind from mapped track later.
+        }
+    }
+
     RemoteStream *stream = m_remoteByTrack.value(trackId);
     if (!stream) {
         stream = new RemoteStream;
+        stream->user = publisher;
         stream->jitter = std::make_unique<JitterBuffer>(90000);
         stream->depacketizer = std::make_unique<RtpDepacketizer>(RtpCodec::H264);
         stream->decoder = std::make_unique<Decoder>();
-        // Best-effort: open H264 decoder for unknown tracks (audio may fail open).
         stream->decoder->open(VideoCodec::H264, HwPolicy::Auto);
         m_remoteByTrack.insert(trackId, stream);
+    } else if (stream->user == 0 && publisher != 0) {
+        stream->user = publisher;
     }
 
     stream->jitter->push(packet, 0);
@@ -258,19 +274,22 @@ void CallEngine::onRemoteRtp(int trackId, const QByteArray &packet)
             PacketRef pkt = makePacket();
             if (!pkt)
                 continue;
-            // Feed Annex-B as a packet to the decoder.
             av_new_packet(pkt.get(), frame.data.size());
             memcpy(pkt->data, frame.data.constData(), size_t(frame.data.size()));
             if (stream->decoder->send(pkt.get()) != MediaResult::Ok)
                 continue;
             FrameRef decoded = makeFrame();
             while (stream->decoder->receive(decoded.get()) == MediaResult::Ok) {
-                // Show on first attached remote sink (1:1).
-                if (!m_remoteSinks.isEmpty()) {
+                QVideoSink *sink = nullptr;
+                if (stream->user != 0 && m_remoteSinks.contains(stream->user))
+                    sink = m_remoteSinks.value(stream->user);
+                else if (!m_remoteSinks.isEmpty())
+                    sink = m_remoteSinks.begin().value();
+                if (sink) {
                     FrameConverter converter;
                     const QVideoFrame vf = converter.toVideoFrame(decoded.get());
                     if (vf.isValid())
-                        m_remoteSinks.begin().value()->setVideoFrame(vf);
+                        sink->setVideoFrame(vf);
                 }
                 Q_EMIT remoteVideoActive(stream->user, true);
             }

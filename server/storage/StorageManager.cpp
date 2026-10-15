@@ -561,26 +561,94 @@ QFuture<bool> StorageManager::updateFileProgress(const QString &fileId, quint64 
 
 QFuture<bool> StorageManager::saveMeeting(const MeetingRecord &meeting)
 {
-    Q_UNUSED(meeting)
-    return QtFuture::makeReadyValueFuture(false);
+    return post<bool>([this, meeting] {
+        if (meeting.meetingId.isEmpty() || meeting.code.isEmpty())
+            return false;
+        QSqlQuery q(QSqlDatabase::database(m_connectionName, false));
+        q.prepare(QStringLiteral(
+            R"(INSERT INTO meetings (meeting_id, code, title, host, conversation_id, active, created_ms)
+               VALUES (?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(meeting_id) DO UPDATE SET
+                 code = excluded.code,
+                 title = excluded.title,
+                 host = excluded.host,
+                 conversation_id = excluded.conversation_id,
+                 active = excluded.active)"));
+        q.addBindValue(meeting.meetingId);
+        q.addBindValue(meeting.code);
+        q.addBindValue(meeting.title);
+        q.addBindValue(qint64(meeting.host));
+        q.addBindValue(meeting.conversationId ? qint64(meeting.conversationId)
+                                              : QVariant());
+        q.addBindValue(meeting.active ? 1 : 0);
+        q.addBindValue(meeting.createdMs > 0 ? meeting.createdMs
+                                             : QDateTime::currentMSecsSinceEpoch());
+        if (!q.exec()) {
+            qCWarning(lcStorage) << "saveMeeting failed:" << q.lastError().text();
+            return false;
+        }
+        return true;
+    });
 }
 
 QFuture<std::optional<MeetingRecord>> StorageManager::meetingByCode(const QString &code)
 {
-    Q_UNUSED(code)
-    return QtFuture::makeReadyValueFuture(std::optional<MeetingRecord>{});
+    return post<std::optional<MeetingRecord>>([this, code]() -> std::optional<MeetingRecord> {
+        QSqlQuery q(QSqlDatabase::database(m_connectionName, false));
+        q.prepare(QStringLiteral(
+            R"(SELECT meeting_id, code, title, host, conversation_id, active, created_ms
+               FROM meetings WHERE code = ? COLLATE NOCASE AND active = 1)"));
+        q.addBindValue(code.trimmed());
+        if (!q.exec() || !q.next())
+            return std::nullopt;
+        MeetingRecord m;
+        m.meetingId = q.value(0).toString();
+        m.code = q.value(1).toString();
+        m.title = q.value(2).toString();
+        m.host = q.value(3).toULongLong();
+        m.conversationId = q.value(4).toULongLong();
+        m.active = q.value(5).toInt() != 0;
+        m.createdMs = q.value(6).toLongLong();
+        return m;
+    });
 }
 
 QFuture<std::optional<MeetingRecord>> StorageManager::meetingById(const QString &meetingId)
 {
-    Q_UNUSED(meetingId)
-    return QtFuture::makeReadyValueFuture(std::optional<MeetingRecord>{});
+    return post<std::optional<MeetingRecord>>([this, meetingId]() -> std::optional<MeetingRecord> {
+        QSqlQuery q(QSqlDatabase::database(m_connectionName, false));
+        q.prepare(QStringLiteral(
+            R"(SELECT meeting_id, code, title, host, conversation_id, active, created_ms
+               FROM meetings WHERE meeting_id = ?)"));
+        q.addBindValue(meetingId);
+        if (!q.exec() || !q.next())
+            return std::nullopt;
+        MeetingRecord m;
+        m.meetingId = q.value(0).toString();
+        m.code = q.value(1).toString();
+        m.title = q.value(2).toString();
+        m.host = q.value(3).toULongLong();
+        m.conversationId = q.value(4).toULongLong();
+        m.active = q.value(5).toInt() != 0;
+        m.createdMs = q.value(6).toLongLong();
+        return m;
+    });
 }
 
 QFuture<bool> StorageManager::closeMeeting(const QString &meetingId)
 {
-    Q_UNUSED(meetingId)
-    return QtFuture::makeReadyValueFuture(false);
+    return post<bool>([this, meetingId] {
+        if (meetingId.isEmpty())
+            return false;
+        QSqlQuery q(QSqlDatabase::database(m_connectionName, false));
+        q.prepare(QStringLiteral("UPDATE meetings SET active = 0 WHERE meeting_id = ?"));
+        q.addBindValue(meetingId);
+        if (!q.exec()) {
+            qCWarning(lcStorage) << "closeMeeting failed:" << q.lastError().text();
+            return false;
+        }
+        return q.numRowsAffected() > 0;
+    });
 }
 
 bool StorageManager::openDatabase()

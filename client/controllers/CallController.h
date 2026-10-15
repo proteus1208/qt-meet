@@ -78,6 +78,8 @@ private:
     void onParticipantEvent(const proto::ParticipantEvt &event);
     void setState(State state);
     void flushPendingSignals();
+    void postMediaState();
+    void enterMeeting(const proto::MeetingJoined &joined, bool video);
 
     NetworkClient     *m_network = nullptr;
     SessionController *m_session = nullptr;

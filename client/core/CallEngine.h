@@ -85,6 +85,7 @@ private:
     int                              m_videoTrack = -1;
     int                              m_videoLowTrack = -1;
     QHash<int, RemoteStream *>       m_remoteByTrack;
+    QHash<quint32, UserId>           m_ssrcToUser;
     QHash<UserId, QPointer<QVideoSink>> m_remoteSinks;
     QPointer<QVideoSink>             m_localPreview;
     bool                             m_micEnabled = true;

@@ -6,7 +6,19 @@ import "components"
 
 Page {
     id: page
-    title: Call.meetingTitle
+    objectName: "MeetingView"
+    title: Call.meetingTitle.length ? Call.meetingTitle : qsTr("Meeting")
+
+    Connections {
+        target: Call
+        function onStateChanged() {
+            if (Call.state === 0) // Idle
+                page.StackView.view.pop()
+        }
+        function onErrorOccurred(message) {
+            errorLabel.text = message
+        }
+    }
 
     header: ToolBar {
         RowLayout {
@@ -14,7 +26,14 @@ Page {
             Label {
                 Layout.leftMargin: 12
                 Layout.fillWidth: true
-                text: qsTr("Meeting code: %1").arg(Call.meetingCode)
+                text: Call.meetingCode.length
+                      ? qsTr("Meeting code: %1").arg(Call.meetingCode)
+                      : qsTr("Meeting")
+            }
+            Label {
+                id: errorLabel
+                color: "#fbbc04"
+                visible: text.length > 0
             }
         }
     }
@@ -30,16 +49,33 @@ Page {
         anchors.margins: 8
         anchors.bottomMargin: controls.height + 16
         clip: true
-        cellWidth: width / Math.max(1, Math.ceil(Math.sqrt(count)))
+        cellWidth: width / Math.max(1, Math.ceil(Math.sqrt(Math.max(1, count))))
         cellHeight: cellWidth * 9 / 16
         model: Call.participants
         delegate: VideoTile {
-            required property var model
+            id: tile
+            required property string displayName
+            required property bool audioOn
+            required property bool speaking
+            required property bool isLocal
+            required property var userId
+
             width: grid.cellWidth - 6
             height: grid.cellHeight - 6
-            displayName: model.displayName
-            audioOn: model.audioOn
-            speaking: model.speaking
+            displayName: tile.displayName
+            audioOn: tile.audioOn
+            speaking: tile.speaking
+
+            Component.onCompleted: {
+                if (tile.isLocal)
+                    Call.attachLocalPreview(tile.videoSink)
+                else if (tile.userId)
+                    Call.attachVideoSink(tile.userId, tile.videoSink)
+            }
+            Component.onDestruction: {
+                if (!tile.isLocal && tile.userId)
+                    Call.detachVideoSink(tile.userId)
+            }
         }
     }
 
@@ -52,13 +88,15 @@ Page {
 
         Button {
             text: Call.micEnabled ? qsTr("Mute") : qsTr("Unmute")
+            onClicked: Call.micEnabled = !Call.micEnabled
         }
         Button {
             text: Call.cameraEnabled ? qsTr("Camera off") : qsTr("Camera on")
+            onClicked: Call.cameraEnabled = !Call.cameraEnabled
         }
         Button {
             text: qsTr("Leave")
-            onClicked: page.StackView.view.pop()
+            onClicked: Call.leaveMeeting()
         }
     }
 }
