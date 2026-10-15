@@ -91,7 +91,22 @@ bool Encoder::openAudio()
     m_context->channel_layout =
         (m_config.channels == 1) ? AV_CH_LAYOUT_MONO : AV_CH_LAYOUT_STEREO;
 #endif
-    m_context->sample_fmt = codec->sample_fmts ? codec->sample_fmts[0] : AV_SAMPLE_FMT_FLTP;
+    // AVCodec::sample_fmts removed in FFmpeg 7.1+ / 8+; prefer first supported format.
+    m_context->sample_fmt = AV_SAMPLE_FMT_FLTP;
+#if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(61, 13, 100)
+    {
+        const enum AVSampleFormat *fmts = nullptr;
+        if (avcodec_get_supported_config(nullptr, codec, AV_CODEC_CONFIG_SAMPLE_FORMAT, 0,
+                                         reinterpret_cast<const void **>(&fmts), nullptr)
+                >= 0
+            && fmts && fmts[0] != AV_SAMPLE_FMT_NONE) {
+            m_context->sample_fmt = fmts[0];
+        }
+    }
+#else
+    if (codec->sample_fmts)
+        m_context->sample_fmt = codec->sample_fmts[0];
+#endif
     m_context->time_base = {1, m_config.sampleRate};
 
     if (avcodec_open2(m_context, codec, nullptr) < 0) {

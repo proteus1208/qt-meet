@@ -9,6 +9,10 @@
 #include "MediaSource.h"
 #include "common/Logger.h"
 
+extern "C" {
+#include <libavcodec/avcodec.h>
+}
+
 namespace qm {
 
 class CaptureWorker : public QObject
