@@ -131,10 +131,10 @@ The server opens an admin window to choose the hosted folder and start / stop th
 | Prep | Dev TLS certs (`server/certs`), FFmpeg + protobuf defaults | done |
 | 1 | TLS framing, login/register, online presence, admin user list | done |
 | 2 | SQLite storage, persistent users, full user search with live presence | done |
-| 3 | Chat and file sharing | pending |
-| 4 | FFmpeg helpers and media player | pending |
-| 5 | Hosted folder streaming | pending |
-| 6 | 1:1 calls via SFU | pending |
+| 3 | Chat and file sharing | done |
+| 4 | FFmpeg helpers and media player | done |
+| 5 | Hosted folder streaming | done |
+| 6 | 1:1 calls via SFU | done |
 | 7 | Group meetings | pending |
 
 See [Reference/COMPLETION_PLAN.md](Reference/COMPLETION_PLAN.md) for the full completion roadmap.
@@ -154,7 +154,40 @@ Users are stored in SQLite at `<dataDir>/qtmeet.db` (default on Windows: `%APPDA
 2. Sign in as A. On the main page, open **People** (or type in **Search people...**): every registered user is listed; typing `b` filters to B, shown with a grey (offline) dot.
 3. Sign in as B in a second client. B's dot in A's list turns green without refreshing.
 4. Registering an existing username (any letter case) fails with a conflict error (code 5).
-5. Clicking a user shows them in the conversation header with live presence (messaging arrives in Phase 3; the **Chats** tab still shows demo data).
+5. Clicking a user shows them in the conversation header with live presence.
+
+### Phase 3 quick test
+
+Chat and attachments use the control TLS channel; downloads use HTTP on port 7401 (`/files/<fileId>?t=<session_token>`).
+
+1. Sign in as A and B. On A open **People**, select B, send a text message — B sees it live; **Chats** lists the conversation.
+2. Restart the server, sign in as A again, open the chat — history reloads from SQLite.
+3. Attach a small file (paperclip). A shows upload progress; B gets a file bubble and can download it (saves to the system Downloads folder).
+4. Sending the same file again is deduplicated by sha256 (instant FileDone).
+
+### Phase 4 quick test
+
+Requires FFmpeg shared libs (`FFMPEG_DIR` or pkg-config).
+
+1. Sign in → open **Files** → **Local…** and pick a local video or audio file.
+2. PlayerPage: Play / Pause / Stop / seek / volume; video appears in `VideoOutput`, audio through the default output device.
+3. Toolbar shows **GPU** when hardware decode was selected, otherwise **CPU**.
+
+### Phase 5 quick test
+
+1. On `QtMeetServer`, choose a **Hosted folder** containing media, then Start.
+2. Client: Sign in → **Files** — listing loads from `DirListReq`.
+3. Enter a folder, open a video/audio file — playback uses `http://<server>:7401/hosted?path=…&t=<session_token>` with HTTP Range seek.
+4. Paths with `..` are rejected; empty hosted folder yields a clear error.
+
+### Phase 6 quick test
+
+Requires libdatachannel (`DATACHANNEL_DIR`) and UDP 40000–40100 reachable to the server.
+
+1. Sign in as A and B on two clients.
+2. A: **People** → select B → **Voice call** or **Video call**.
+3. B: incoming CallView → **Accept** (or **Reject**).
+4. Both sides: mute / camera / hang up; media flows client ↔ server SFU (not peer-to-peer).
 
 ## Licensing notes
 

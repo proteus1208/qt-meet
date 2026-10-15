@@ -3,6 +3,7 @@
 #include <QtQml>
 
 #include "common/ResourceMonitor.h"
+#include "rtc/RtcConfig.h"
 #include "controllers/CallController.h"
 #include "controllers/ChatController.h"
 #include "controllers/ExplorerController.h"
@@ -80,6 +81,15 @@ void ClientApp::buildComponents()
                                               m_participants.get());
     m_explorer = std::make_unique<ExplorerController>(m_network.get(), m_session.get(),
                                                       m_remoteFiles.get(), m_player.get());
+
+    connect(m_session.get(), &SessionController::sessionChanged, this, [this] {
+        if (!m_session->loggedIn() || !m_callEngine)
+            return;
+        RtcConfig rtc;
+        rtc.portRangeBegin = m_session->rtcPortMin();
+        rtc.portRangeEnd = m_session->rtcPortMax();
+        m_callEngine->setRtcConfig(rtc);
+    });
 }
 
 } // namespace qm

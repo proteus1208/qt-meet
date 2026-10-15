@@ -44,7 +44,7 @@ private:
 
     void onOffer(const RequestContext &context, const proto::Envelope &envelope);
     void onChunk(const RequestContext &context, const proto::Envelope &envelope);
-    void finish(const QString &transferId, Upload &upload);
+    bool finish(const QString &transferId, Upload &upload);
 
     StorageManager                            *m_storage = nullptr;
     SessionRegistry                           *m_sessions = nullptr;

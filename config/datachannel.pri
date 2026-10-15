@@ -5,6 +5,7 @@ DATACHANNEL_DIR = $$(DATACHANNEL_DIR)
 isEmpty(DATACHANNEL_DIR) {
     warning("DATACHANNEL_DIR is not set; libdatachannel headers/libs will not be found")
 } else {
+    DEFINES += QM_HAVE_DATACHANNEL
     INCLUDEPATH += $$DATACHANNEL_DIR/include
     !contains(TEMPLATE, lib) {
         LIBS += -L$$DATACHANNEL_DIR/lib -ldatachannel

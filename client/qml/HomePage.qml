@@ -1,5 +1,6 @@
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Dialogs
 import QtQuick.Layouts
 import QtMeet
 import "theme"
@@ -9,8 +10,6 @@ Page {
 
     readonly property Theme theme: Theme {}
     property int currentNav: 0 // 0 chats, 1 people, 2 meetings, 3 files
-    property int selectedChat: 0
-    // True once a real user is picked from People; the demo chat pane is used otherwise.
     readonly property bool peerMode: Chat.activePeerId !== 0
 
     background: Rectangle { color: page.theme.bg }
@@ -49,112 +48,39 @@ Page {
         }
     }
 
-    // Demo data until controllers feed real models
-    ListModel {
-        id: chatModel
-        ListElement {
-            name: "Alice Smith"
-            initials: "AS"
-            avatarColor: "#3B82F6"
-            preview: "Sure, I'll send the design files..."
-            time: "10:24"
-            unread: 2
-            online: true
-        }
-        ListElement {
-            name: "Mark Kim"
-            initials: "MK"
-            avatarColor: "#8B5CF6"
-            preview: "Meeting notes attached."
-            time: "Yesterday"
-            unread: 0
-            online: true
-        }
-        ListElement {
-            name: "Design Team"
-            initials: "DT"
-            avatarColor: "#F59E0B"
-            preview: "New mockups are ready for review"
-            time: "Mon"
-            unread: 5
-            online: false
-        }
-        ListElement {
-            name: "Sarah Chen"
-            initials: "SC"
-            avatarColor: "#10B981"
-            preview: "Can we reschedule to 3pm?"
-            time: "Mon"
-            unread: 0
-            online: false
-        }
-        ListElement {
-            name: "Project Alpha"
-            initials: "PA"
-            avatarColor: "#EF4444"
-            preview: "Sprint planning tomorrow"
-            time: "Sun"
-            unread: 1
-            online: false
-        }
+    function formatBytes(n) {
+        const v = Number(n)
+        if (!isFinite(v) || v < 0)
+            return ""
+        if (v < 1024)
+            return v + " B"
+        if (v < 1024 * 1024)
+            return (v / 1024).toFixed(1) + " KB"
+        if (v < 1024 * 1024 * 1024)
+            return (v / (1024 * 1024)).toFixed(1) + " MB"
+        return (v / (1024 * 1024 * 1024)).toFixed(1) + " GB"
     }
 
-    ListModel {
-        id: messageModel
-        ListElement {
-            fromMe: false
-            sender: "Alice Smith"
-            initials: "AS"
-            avatarColor: "#3B82F6"
-            text: "Hey! Are you free for a quick call about the project?"
-            time: "10:18"
-            isFile: false
-            fileName: ""
-            fileSize: ""
-        }
-        ListElement {
-            fromMe: true
-            sender: "You"
-            initials: "JD"
-            avatarColor: "#2563EB"
-            text: "Sure, give me 5 minutes to wrap this up."
-            time: "10:19"
-            isFile: false
-            fileName: ""
-            fileSize: ""
-        }
-        ListElement {
-            fromMe: false
-            sender: "Alice Smith"
-            initials: "AS"
-            avatarColor: "#3B82F6"
-            text: "Perfect. I'll also share the latest design package."
-            time: "10:20"
-            isFile: false
-            fileName: ""
-            fileSize: ""
-        }
-        ListElement {
-            fromMe: false
-            sender: "Alice Smith"
-            initials: "AS"
-            avatarColor: "#3B82F6"
-            text: ""
-            time: "10:21"
-            isFile: true
-            fileName: "Project_Design.zip"
-            fileSize: "12.4 MB"
-        }
-        ListElement {
-            fromMe: true
-            sender: "You"
-            initials: "JD"
-            avatarColor: "#2563EB"
-            text: "Got it — downloading now. Ready when you are."
-            time: "10:22"
-            isFile: false
-            fileName: ""
-            fileSize: ""
+    function formatTime(ms) {
+        if (!ms)
+            return ""
+        const d = new Date(Number(ms))
+        const hh = String(d.getHours()).padStart(2, "0")
+        const mm = String(d.getMinutes()).padStart(2, "0")
+        return hh + ":" + mm
+    }
+
+    FileDialog {
+        id: attachDialog
+        title: qsTr("Send file")
+        fileMode: FileDialog.OpenFile
+        onAccepted: Chat.sendFile(selectedFile)
+    }
+
+    Connections {
+        target: Call
+        function onIncomingCall(callerName, video) {
+            page.StackView.view.push(Qt.resolvedUrl("CallView.qml"))
         }
     }
 
@@ -331,7 +257,7 @@ Page {
                             font.pixelSize: 16
                         }
 
-                        TextInput {
+                            TextInput {
                             id: searchInput
                             Layout.fillWidth: true
                             color: page.theme.text
@@ -356,11 +282,12 @@ Page {
 
                 ListView {
                     id: peopleList
-                    visible: page.currentNav === 1
                     Layout.fillWidth: true
-                    Layout.fillHeight: true
+                    Layout.fillHeight: page.currentNav === 1
+                    Layout.preferredHeight: page.currentNav === 1 ? -1 : 0
                     clip: true
                     spacing: 4
+                    visible: page.currentNav === 1
                     model: Chat.searchResults
 
                     delegate: Rectangle {
@@ -448,29 +375,26 @@ Page {
 
                 ListView {
                     id: chatList
-                    visible: page.currentNav !== 1
                     Layout.fillWidth: true
-                    Layout.fillHeight: true
+                    Layout.fillHeight: page.currentNav !== 1
+                    Layout.preferredHeight: page.currentNav !== 1 ? -1 : 0
                     clip: true
                     spacing: 4
-                    model: chatModel
-                    currentIndex: page.selectedChat
+                    visible: page.currentNav !== 1
+                    model: Chat.conversations
 
                     delegate: Rectangle {
                         id: chatDelegate
-                        required property int index
-                        required property string name
-                        required property string initials
-                        required property string avatarColor
-                        required property string preview
-                        required property string time
-                        required property int unread
-                        required property bool online
+                        required property var model
 
                         width: chatList.width
-                        height: 68
+                        height: 64
                         radius: page.theme.radiusSm
-                        color: !page.peerMode && chatList.currentIndex === index ? page.theme.surfaceHover : "transparent"
+                        color: page.peerMode && Chat.activePeerId === model.peerUserId
+                               ? page.theme.surfaceHover
+                               : (chatHover.hovered ? page.theme.surfaceAlt : "transparent")
+
+                        HoverHandler { id: chatHover }
 
                         RowLayout {
                             anchors.fill: parent
@@ -478,72 +402,57 @@ Page {
                             spacing: 10
 
                             Rectangle {
-                                Layout.preferredWidth: 44
-                                Layout.preferredHeight: 44
-                                radius: 22
-                                color: chatDelegate.avatarColor
-
+                                Layout.preferredWidth: 40
+                                Layout.preferredHeight: 40
+                                radius: 20
+                                color: page.avatarColorFor(chatDelegate.model.peerUserId)
                                 Text {
                                     anchors.centerIn: parent
-                                    text: initials
+                                    text: page.initialsOf(chatDelegate.model.title)
                                     color: "white"
                                     font.bold: true
                                     font.pixelSize: 13
-                                }
-
-                                Rectangle {
-                                    visible: online
-                                    anchors.right: parent.right
-                                    anchors.bottom: parent.bottom
-                                    width: 10
-                                    height: 10
-                                    radius: 5
-                                    color: page.theme.success
-                                    border.color: page.theme.surface
-                                    border.width: 2
                                 }
                             }
 
                             ColumnLayout {
                                 Layout.fillWidth: true
                                 spacing: 2
-
                                 RowLayout {
                                     Layout.fillWidth: true
                                     Label {
                                         Layout.fillWidth: true
-                                        text: name
+                                        text: chatDelegate.model.title
                                         color: page.theme.text
                                         font.pixelSize: 14
                                         font.bold: true
                                         elide: Text.ElideRight
                                     }
                                     Label {
-                                        text: time
+                                        text: page.formatTime(chatDelegate.model.lastTimestamp)
                                         color: page.theme.textDim
                                         font.pixelSize: 11
                                     }
                                 }
-
                                 RowLayout {
                                     Layout.fillWidth: true
                                     Label {
                                         Layout.fillWidth: true
-                                        text: preview
+                                        text: chatDelegate.model.lastText
                                         color: page.theme.textMuted
                                         font.pixelSize: 12
                                         elide: Text.ElideRight
                                     }
                                     Rectangle {
-                                        visible: unread > 0
-                                        Layout.preferredWidth: Math.max(18, badgeText.implicitWidth + 8)
-                                        Layout.preferredHeight: 18
+                                        visible: chatDelegate.model.unread > 0
+                                        width: Math.max(18, unreadLabel.implicitWidth + 8)
+                                        height: 18
                                         radius: 9
                                         color: page.theme.accent
-                                        Text {
-                                            id: badgeText
+                                        Label {
+                                            id: unreadLabel
                                             anchors.centerIn: parent
-                                            text: unread
+                                            text: chatDelegate.model.unread
                                             color: "white"
                                             font.pixelSize: 10
                                             font.bold: true
@@ -556,11 +465,18 @@ Page {
                         MouseArea {
                             anchors.fill: parent
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: {
-                                page.selectedChat = index
-                                Chat.openConversationWith(0, "")
-                            }
+                            onClicked: Chat.openConversationWith(chatDelegate.model.peerUserId,
+                                                                 chatDelegate.model.title)
                         }
+                    }
+
+                    Label {
+                        anchors.centerIn: parent
+                        visible: chatList.count === 0
+                        text: qsTr("No conversations yet.\nOpen People to start chatting.")
+                        horizontalAlignment: Text.AlignHCenter
+                        color: page.theme.textDim
+                        font.pixelSize: 13
                     }
                 }
             }
@@ -597,17 +513,15 @@ Page {
                         ColumnLayout {
                             spacing: 2
                             Label {
-                                text: page.peerMode ? Chat.activePeerName
-                                                    : chatModel.get(page.selectedChat).name
-                                color: page.theme.text
+                                text: page.peerMode ? Chat.activePeerName : qsTr("No chat selected")
+                                color: page.peerMode ? page.theme.text : page.theme.textMuted
                                 font.pixelSize: 16
                                 font.bold: true
                             }
                             RowLayout {
+                                visible: page.peerMode
                                 spacing: 6
-                                readonly property int presence: page.peerMode
-                                    ? Chat.activePeerPresence
-                                    : (chatModel.get(page.selectedChat).online ? 1 : 0)
+                                readonly property int presence: Chat.activePeerPresence
                                 Rectangle {
                                     width: 8
                                     height: 8
@@ -625,7 +539,8 @@ Page {
                         Item { Layout.fillWidth: true }
 
                         Repeater {
-                            model: [
+                            model: page.peerMode ? callActions : []
+                            readonly property var callActions: [
                                 { icon: "📞", tip: qsTr("Voice call") },
                                 { icon: "📷", tip: qsTr("Video call") },
                                 { icon: "⋮", tip: qsTr("More") }
@@ -651,8 +566,12 @@ Page {
                                     anchors.fill: parent
                                     cursorShape: Qt.PointingHandCursor
                                     onClicked: {
-                                        if (modelData.tip.indexOf("call") >= 0 || modelData.tip.indexOf("Call") >= 0)
-                                            page.StackView.view.push(Qt.resolvedUrl("CallView.qml"))
+                                        if (!page.peerMode)
+                                            return
+                                        const video = modelData.tip.indexOf("Video") >= 0
+                                                      || modelData.tip.indexOf("video") >= 0
+                                        Call.callUser(Chat.activePeerId, Chat.activePeerName, video)
+                                        page.StackView.view.push(Qt.resolvedUrl("CallView.qml"))
                                     }
                                 }
                             }
@@ -673,42 +592,41 @@ Page {
                     Layout.fillHeight: true
                     clip: true
                     spacing: 12
-                    model: page.peerMode ? null : messageModel
+                    model: Chat.messages
                     topMargin: 16
                     bottomMargin: 16
                     leftMargin: 20
                     rightMargin: 20
+                    onCountChanged: Qt.callLater(function() { positionViewAtEnd() })
 
                     header: Item {
                         width: messageList.width - 40
-                        height: 36
-                        Rectangle {
+                        height: Chat.hasMoreMessages ? 40 : 0
+                        visible: height > 0
+                        Button {
                             anchors.centerIn: parent
-                            width: todayLabel.implicitWidth + 24
-                            height: 24
-                            radius: 12
-                            color: page.theme.surfaceAlt
-                            Label {
-                                id: todayLabel
-                                anchors.centerIn: parent
-                                text: qsTr("Today")
-                                color: page.theme.textMuted
-                                font.pixelSize: 11
-                            }
+                            text: qsTr("Load earlier messages")
+                            flat: true
+                            onClicked: Chat.loadMore()
                         }
                     }
 
                     delegate: Column {
                         id: msgDelegate
                         required property bool fromMe
-                        required property string sender
-                        required property string initials
-                        required property string avatarColor
                         required property string text
-                        required property string time
-                        required property bool isFile
+                        required property var timestamp
+                        required property bool pending
+                        required property string fileId
                         required property string fileName
-                        required property string fileSize
+                        required property var fileSize
+                        required property var fromUserId
+
+                        readonly property bool isFile: fileId && fileId.length > 0
+                        readonly property string sender: fromMe ? Session.displayName : Chat.activePeerName
+                        readonly property string initials: page.initialsOf(sender)
+                        readonly property string avatarColor: page.avatarColorFor(fromMe ? Session.userId : fromUserId)
+                        readonly property string time: page.formatTime(timestamp)
 
                         width: messageList.width - 40
                         spacing: 4
@@ -742,6 +660,7 @@ Page {
                                 height: msgCol.implicitHeight + 20
                                 radius: 14
                                 color: fromMe ? page.theme.bubbleOut : page.theme.bubbleIn
+                                opacity: pending ? 0.7 : 1
 
                                 Column {
                                     id: msgCol
@@ -760,7 +679,7 @@ Page {
                                     }
 
                                     Label {
-                                        visible: !isFile
+                                        visible: !isFile && msgDelegate.text.length > 0
                                         width: parent.width
                                         text: msgDelegate.text
                                         color: page.theme.text
@@ -768,7 +687,6 @@ Page {
                                         wrapMode: Text.Wrap
                                     }
 
-                                    // File card
                                     Rectangle {
                                         visible: isFile
                                         width: parent.width
@@ -805,7 +723,7 @@ Page {
                                                     Layout.fillWidth: true
                                                 }
                                                 Label {
-                                                    text: fileSize
+                                                    text: page.formatBytes(fileSize)
                                                     color: page.theme.textMuted
                                                     font.pixelSize: 11
                                                 }
@@ -822,13 +740,18 @@ Page {
                                                     color: "white"
                                                     font.pixelSize: 14
                                                 }
+                                                MouseArea {
+                                                    anchors.fill: parent
+                                                    cursorShape: Qt.PointingHandCursor
+                                                    onClicked: Chat.downloadAttachment(fileId, fileName)
+                                                }
                                             }
                                         }
                                     }
 
                                     Label {
                                         anchors.right: fromMe ? parent.right : undefined
-                                        text: time + (fromMe ? "  ✓✓" : "")
+                                        text: time + (fromMe ? (pending ? "  …" : "  ✓✓") : "")
                                         color: fromMe ? Qt.rgba(1, 1, 1, 0.7) : page.theme.textDim
                                         font.pixelSize: 10
                                     }
@@ -839,39 +762,13 @@ Page {
 
                     Label {
                         anchors.centerIn: parent
-                        visible: page.peerMode
-                        text: qsTr("No messages with %1 yet.\nMessaging arrives in Phase 3.").arg(Chat.activePeerName)
+                        visible: messageList.count === 0
+                        text: page.peerMode
+                              ? qsTr("No messages with %1 yet.\nSay hello!").arg(Chat.activePeerName)
+                              : qsTr("Select a user on the left to start chatting.")
                         horizontalAlignment: Text.AlignHCenter
                         color: page.theme.textDim
                         font.pixelSize: 13
-                    }
-
-                    footer: Row {
-                        width: messageList.width - 40
-                        leftPadding: 40
-                        spacing: 8
-                        visible: !page.peerMode
-
-                        Rectangle {
-                            width: 48
-                            height: 28
-                            radius: 14
-                            color: page.theme.bubbleIn
-
-                            Row {
-                                anchors.centerIn: parent
-                                spacing: 3
-                                Repeater {
-                                    model: 3
-                                    Rectangle {
-                                        width: 5
-                                        height: 5
-                                        radius: 2.5
-                                        color: page.theme.textMuted
-                                    }
-                                }
-                            }
-                        }
                     }
                 }
 
@@ -898,12 +795,14 @@ Page {
                             Text {
                                 text: "📎"
                                 font.pixelSize: 16
-                                color: page.theme.textMuted
-                            }
-                            Text {
-                                text: "☺"
-                                font.pixelSize: 16
-                                color: page.theme.textMuted
+                                color: page.peerMode ? page.theme.textMuted : page.theme.textDim
+                                opacity: page.peerMode ? 1 : 0.4
+                                MouseArea {
+                                    anchors.fill: parent
+                                    enabled: page.peerMode
+                                    cursorShape: Qt.PointingHandCursor
+                                    onClicked: attachDialog.open()
+                                }
                             }
 
                             TextInput {
@@ -912,15 +811,24 @@ Page {
                                 color: page.theme.text
                                 font.pixelSize: 13
                                 clip: true
+                                enabled: page.peerMode
                                 Text {
                                     anchors.fill: parent
                                     verticalAlignment: Text.AlignVCenter
-                                    text: qsTr("Write a message...")
+                                    text: page.peerMode ? qsTr("Write a message...")
+                                                        : qsTr("Select someone to message")
                                     color: page.theme.textDim
                                     font.pixelSize: 13
                                     visible: !composer.text && !composer.activeFocus
                                 }
-                                Keys.onReturnPressed: sendBtn.clicked()
+                                Keys.onReturnPressed: (event) => {
+                                    if (event.modifiers & Qt.ShiftModifier) {
+                                        event.accepted = false
+                                        return
+                                    }
+                                    sendBtn.clicked()
+                                    event.accepted = true
+                                }
                             }
 
                             Rectangle {
@@ -931,6 +839,12 @@ Page {
                                 color: page.theme.accent
 
                                 signal clicked()
+                                onClicked: {
+                                    if (!page.peerMode || composer.text.trim().length === 0)
+                                        return
+                                    Chat.sendText(composer.text.trim())
+                                    composer.text = ""
+                                }
                                 Text {
                                     anchors.centerIn: parent
                                     text: "➤"
@@ -940,23 +854,7 @@ Page {
                                 MouseArea {
                                     anchors.fill: parent
                                     cursorShape: Qt.PointingHandCursor
-                                    onClicked: {
-                                        if (composer.text.trim().length === 0 || page.peerMode)
-                                            return
-                                        messageModel.append({
-                                            fromMe: true,
-                                            sender: "You",
-                                            initials: "JD",
-                                            avatarColor: "#2563EB",
-                                            text: composer.text.trim(),
-                                            time: Qt.formatTime(new Date(), "hh:mm"),
-                                            isFile: false,
-                                            fileName: "",
-                                            fileSize: ""
-                                        })
-                                        composer.text = ""
-                                        messageList.positionViewAtEnd()
-                                    }
+                                    onClicked: sendBtn.clicked()
                                 }
                             }
                         }
@@ -1175,34 +1073,32 @@ Page {
                         spacing: 10
 
                         Label {
-                            text: qsTr("Transfers (2)")
+                            text: qsTr("Transfers (%1)").arg(transfersView.count)
                             color: page.theme.text
                             font.pixelSize: 13
                             font.bold: true
                         }
 
-                        Repeater {
-                            model: [
-                                {
-                                    name: "Project_Design.zip",
-                                    dir: "up",
-                                    progress: 0.5,
-                                    detail: "6.2 / 12.4 MB",
-                                    accent: "#3B82F6"
-                                },
-                                {
-                                    name: "Video_Intro.mp4",
-                                    dir: "down",
-                                    progress: 0.44,
-                                    detail: "38 / 86 MB",
-                                    accent: "#22C55E"
-                                }
-                            ]
+                        ListView {
+                            id: transfersView
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            clip: true
+                            spacing: 10
+                            model: Chat.transfers
 
                             delegate: ColumnLayout {
-                                required property var modelData
-                                Layout.fillWidth: true
+                                required property string name
+                                required property bool isUpload
+                                required property var done
+                                required property var total
+                                required property double progress
+                                required property int state
+
+                                width: transfersView.width
                                 spacing: 4
+
+                                readonly property color accent: isUpload ? "#3B82F6" : "#22C55E"
 
                                 RowLayout {
                                     Layout.fillWidth: true
@@ -1212,11 +1108,11 @@ Page {
                                         Layout.preferredWidth: 28
                                         Layout.preferredHeight: 28
                                         radius: 8
-                                        color: modelData.dir === "up" ? "#1E3A5F" : "#14532D"
+                                        color: isUpload ? "#1E3A5F" : "#14532D"
                                         Text {
                                             anchors.centerIn: parent
-                                            text: modelData.dir === "up" ? "↑" : "↓"
-                                            color: modelData.accent
+                                            text: isUpload ? "↑" : "↓"
+                                            color: accent
                                             font.pixelSize: 14
                                             font.bold: true
                                         }
@@ -1226,23 +1122,17 @@ Page {
                                         Layout.fillWidth: true
                                         spacing: 2
                                         Label {
-                                            text: modelData.name
+                                            text: name
                                             color: page.theme.text
                                             font.pixelSize: 12
                                             elide: Text.ElideMiddle
                                             Layout.fillWidth: true
                                         }
                                         Label {
-                                            text: modelData.detail
+                                            text: page.formatBytes(done) + " / " + page.formatBytes(total)
                                             color: page.theme.textMuted
                                             font.pixelSize: 10
                                         }
-                                    }
-
-                                    Text {
-                                        text: "✕"
-                                        color: page.theme.textDim
-                                        font.pixelSize: 12
                                     }
                                 }
 
@@ -1253,16 +1143,22 @@ Page {
                                     color: page.theme.border
 
                                     Rectangle {
-                                        width: parent.width * modelData.progress
+                                        width: parent.width * Math.min(1, Math.max(0, progress))
                                         height: parent.height
                                         radius: 2
-                                        color: modelData.accent
+                                        color: accent
                                     }
                                 }
                             }
-                        }
 
-                        Item { Layout.fillHeight: true }
+                            Label {
+                                anchors.centerIn: parent
+                                visible: transfersView.count === 0
+                                text: qsTr("No active transfers")
+                                color: page.theme.textDim
+                                font.pixelSize: 12
+                            }
+                        }
                     }
                 }
             }

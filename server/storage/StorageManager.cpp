@@ -200,75 +200,363 @@ QFuture<QList<UserRecord>> StorageManager::searchUsers(const QString &query, int
 
 QFuture<ConversationId> StorageManager::directConversation(UserId a, UserId b)
 {
-    Q_UNUSED(a)
-    Q_UNUSED(b)
-    return QtFuture::makeReadyValueFuture(ConversationId(0));
+    return post<ConversationId>([this, a, b]() -> ConversationId {
+        if (a == 0 || b == 0 || a == b)
+            return 0;
+
+        const UserId lo = qMin(a, b);
+        const UserId hi = qMax(a, b);
+        const QString key = QStringLiteral("%1:%2").arg(lo).arg(hi);
+        QSqlDatabase db = QSqlDatabase::database(m_connectionName, false);
+
+        {
+            QSqlQuery q(db);
+            q.prepare(QStringLiteral("SELECT id FROM conversations WHERE direct_key = ?"));
+            q.addBindValue(key);
+            if (!q.exec()) {
+                qCWarning(lcStorage) << "directConversation lookup failed:" << q.lastError().text();
+                return 0;
+            }
+            if (q.next())
+                return q.value(0).toULongLong();
+        }
+
+        if (!db.transaction()) {
+            qCWarning(lcStorage) << "directConversation begin failed:" << db.lastError().text();
+            return 0;
+        }
+
+        ConversationId id = 0;
+        {
+            QSqlQuery q(db);
+            q.prepare(QStringLiteral(
+                "INSERT INTO conversations (kind, direct_key, created_ms) VALUES (?, ?, ?)"));
+            q.addBindValue(int(ConversationRecord::Kind::Direct));
+            q.addBindValue(key);
+            q.addBindValue(QDateTime::currentMSecsSinceEpoch());
+            if (!q.exec()) {
+                // Concurrent create: look up again.
+                db.rollback();
+                QSqlQuery again(db);
+                again.prepare(QStringLiteral("SELECT id FROM conversations WHERE direct_key = ?"));
+                again.addBindValue(key);
+                if (again.exec() && again.next())
+                    return again.value(0).toULongLong();
+                qCWarning(lcStorage) << "directConversation insert failed:" << q.lastError().text();
+                return 0;
+            }
+            id = q.lastInsertId().toULongLong();
+        }
+
+        for (UserId member : {lo, hi}) {
+            QSqlQuery q(db);
+            q.prepare(QStringLiteral(
+                "INSERT INTO conversation_members (conversation_id, user_id) VALUES (?, ?)"));
+            q.addBindValue(qint64(id));
+            q.addBindValue(qint64(member));
+            if (!q.exec()) {
+                qCWarning(lcStorage) << "directConversation member failed:" << q.lastError().text();
+                db.rollback();
+                return 0;
+            }
+        }
+
+        if (!db.commit()) {
+            qCWarning(lcStorage) << "directConversation commit failed:" << db.lastError().text();
+            return 0;
+        }
+        return id;
+    });
 }
 
 QFuture<ConversationId> StorageManager::createMeetingConversation(const QList<UserId> &members)
 {
-    Q_UNUSED(members)
-    return QtFuture::makeReadyValueFuture(ConversationId(0));
+    return post<ConversationId>([this, members]() -> ConversationId {
+        QSqlDatabase db = QSqlDatabase::database(m_connectionName, false);
+        if (!db.transaction())
+            return 0;
+
+        ConversationId id = 0;
+        {
+            QSqlQuery q(db);
+            q.prepare(QStringLiteral(
+                "INSERT INTO conversations (kind, direct_key, created_ms) VALUES (?, NULL, ?)"));
+            q.addBindValue(int(ConversationRecord::Kind::Meeting));
+            q.addBindValue(QDateTime::currentMSecsSinceEpoch());
+            if (!q.exec()) {
+                db.rollback();
+                qCWarning(lcStorage) << "createMeetingConversation failed:" << q.lastError().text();
+                return 0;
+            }
+            id = q.lastInsertId().toULongLong();
+        }
+
+        for (UserId member : members) {
+            if (member == 0)
+                continue;
+            QSqlQuery q(db);
+            q.prepare(QStringLiteral(
+                "INSERT OR IGNORE INTO conversation_members (conversation_id, user_id) VALUES (?, ?)"));
+            q.addBindValue(qint64(id));
+            q.addBindValue(qint64(member));
+            if (!q.exec()) {
+                db.rollback();
+                return 0;
+            }
+        }
+
+        if (!db.commit())
+            return 0;
+        return id;
+    });
 }
 
 QFuture<bool> StorageManager::addMember(ConversationId conversation, UserId user)
 {
-    Q_UNUSED(conversation)
-    Q_UNUSED(user)
-    return QtFuture::makeReadyValueFuture(false);
+    return post<bool>([this, conversation, user] {
+        if (conversation == 0 || user == 0)
+            return false;
+        QSqlQuery q(QSqlDatabase::database(m_connectionName, false));
+        q.prepare(QStringLiteral(
+            "INSERT OR IGNORE INTO conversation_members (conversation_id, user_id) VALUES (?, ?)"));
+        q.addBindValue(qint64(conversation));
+        q.addBindValue(qint64(user));
+        if (!q.exec()) {
+            qCWarning(lcStorage) << "addMember failed:" << q.lastError().text();
+            return false;
+        }
+        return true;
+    });
 }
 
 QFuture<bool> StorageManager::isMember(ConversationId conversation, UserId user)
 {
-    Q_UNUSED(conversation)
-    Q_UNUSED(user)
-    return QtFuture::makeReadyValueFuture(false);
+    return post<bool>([this, conversation, user] {
+        QSqlQuery q(QSqlDatabase::database(m_connectionName, false));
+        q.prepare(QStringLiteral(
+            "SELECT 1 FROM conversation_members WHERE conversation_id = ? AND user_id = ?"));
+        q.addBindValue(qint64(conversation));
+        q.addBindValue(qint64(user));
+        if (!q.exec()) {
+            qCWarning(lcStorage) << "isMember failed:" << q.lastError().text();
+            return false;
+        }
+        return q.next();
+    });
 }
 
 QFuture<QList<UserId>> StorageManager::members(ConversationId conversation)
 {
-    Q_UNUSED(conversation)
-    return QtFuture::makeReadyValueFuture(QList<UserId>{});
+    return post<QList<UserId>>([this, conversation] {
+        QList<UserId> out;
+        QSqlQuery q(QSqlDatabase::database(m_connectionName, false));
+        q.prepare(QStringLiteral(
+            "SELECT user_id FROM conversation_members WHERE conversation_id = ?"));
+        q.addBindValue(qint64(conversation));
+        if (!q.exec()) {
+            qCWarning(lcStorage) << "members failed:" << q.lastError().text();
+            return out;
+        }
+        while (q.next())
+            out.append(q.value(0).toULongLong());
+        return out;
+    });
 }
 
 QFuture<MessageRecord> StorageManager::saveMessage(const MessageRecord &message)
 {
-    Q_UNUSED(message)
-    return QtFuture::makeReadyValueFuture(MessageRecord{});
+    return post<MessageRecord>([this, message]() -> MessageRecord {
+        MessageRecord saved = message;
+        if (saved.timestampMs == 0)
+            saved.timestampMs = QDateTime::currentMSecsSinceEpoch();
+
+        QSqlDatabase db = QSqlDatabase::database(m_connectionName, false);
+
+        // Idempotent send: same client_msg_id from the same user in the same conversation.
+        if (!saved.clientMsgId.isEmpty()) {
+            QSqlQuery find(db);
+            find.prepare(QStringLiteral(
+                "SELECT id, conversation_id, from_user, client_msg_id, text, file_id, timestamp_ms "
+                "FROM messages WHERE conversation_id = ? AND from_user = ? AND client_msg_id = ?"));
+            find.addBindValue(qint64(saved.conversationId));
+            find.addBindValue(qint64(saved.fromUser));
+            find.addBindValue(saved.clientMsgId);
+            if (find.exec() && find.next()) {
+                saved.id = find.value(0).toULongLong();
+                saved.conversationId = find.value(1).toULongLong();
+                saved.fromUser = find.value(2).toULongLong();
+                saved.clientMsgId = find.value(3).toString();
+                saved.text = find.value(4).toString();
+                saved.fileId = find.value(5).toString();
+                saved.timestampMs = find.value(6).toLongLong();
+                return saved;
+            }
+        }
+
+        QSqlQuery q(db);
+        q.prepare(QStringLiteral(
+            "INSERT INTO messages (conversation_id, from_user, client_msg_id, text, file_id, timestamp_ms) "
+            "VALUES (?, ?, ?, ?, ?, ?)"));
+        q.addBindValue(qint64(saved.conversationId));
+        q.addBindValue(qint64(saved.fromUser));
+        q.addBindValue(saved.clientMsgId.isEmpty() ? QVariant() : saved.clientMsgId);
+        q.addBindValue(saved.text);
+        q.addBindValue(saved.fileId.isEmpty() ? QVariant() : saved.fileId);
+        q.addBindValue(saved.timestampMs);
+        if (!q.exec()) {
+            qCWarning(lcStorage) << "saveMessage failed:" << q.lastError().text();
+            return MessageRecord{};
+        }
+        saved.id = q.lastInsertId().toULongLong();
+        return saved;
+    });
 }
 
 QFuture<QList<MessageRecord>> StorageManager::history(ConversationId conversation, MessageId before, int limit)
 {
-    Q_UNUSED(conversation)
-    Q_UNUSED(before)
-    Q_UNUSED(limit)
-    return QtFuture::makeReadyValueFuture(QList<MessageRecord>{});
+    return post<QList<MessageRecord>>([this, conversation, before, limit] {
+        QList<MessageRecord> newestFirst;
+        QSqlQuery q(QSqlDatabase::database(m_connectionName, false));
+        if (before == 0) {
+            q.prepare(QStringLiteral(
+                "SELECT id, conversation_id, from_user, client_msg_id, text, file_id, timestamp_ms "
+                "FROM messages WHERE conversation_id = ? ORDER BY id DESC LIMIT ?"));
+            q.addBindValue(qint64(conversation));
+            q.addBindValue(limit);
+        } else {
+            q.prepare(QStringLiteral(
+                "SELECT id, conversation_id, from_user, client_msg_id, text, file_id, timestamp_ms "
+                "FROM messages WHERE conversation_id = ? AND id < ? ORDER BY id DESC LIMIT ?"));
+            q.addBindValue(qint64(conversation));
+            q.addBindValue(qint64(before));
+            q.addBindValue(limit);
+        }
+        if (!q.exec()) {
+            qCWarning(lcStorage) << "history failed:" << q.lastError().text();
+            return QList<MessageRecord>{};
+        }
+        while (q.next()) {
+            MessageRecord m;
+            m.id = q.value(0).toULongLong();
+            m.conversationId = q.value(1).toULongLong();
+            m.fromUser = q.value(2).toULongLong();
+            m.clientMsgId = q.value(3).toString();
+            m.text = q.value(4).toString();
+            m.fileId = q.value(5).toString();
+            m.timestampMs = q.value(6).toLongLong();
+            newestFirst.append(m);
+        }
+
+        QList<MessageRecord> oldestFirst;
+        oldestFirst.reserve(newestFirst.size());
+        for (auto it = newestFirst.crbegin(); it != newestFirst.crend(); ++it)
+            oldestFirst.append(*it);
+        return oldestFirst;
+    });
 }
+
+namespace {
+
+FileRecord readFile(const QSqlQuery &q)
+{
+    FileRecord file;
+    file.fileId = q.value(0).toString();
+    file.name = q.value(1).toString();
+    file.mime = q.value(2).toString();
+    file.sha256 = q.value(3).toString();
+    file.blobPath = q.value(4).toString();
+    file.size = q.value(5).toULongLong();
+    file.received = q.value(6).toULongLong();
+    file.owner = q.value(7).toULongLong();
+    file.complete = q.value(8).toBool();
+    file.createdMs = q.value(9).toLongLong();
+    return file;
+}
+
+constexpr auto kFileColumns =
+    "file_id, name, mime, sha256, blob_path, size, received, owner, complete, created_ms";
+
+} // namespace
 
 QFuture<bool> StorageManager::saveFile(const FileRecord &file)
 {
-    Q_UNUSED(file)
-    return QtFuture::makeReadyValueFuture(false);
+    return post<bool>([this, file] {
+        QSqlQuery q(QSqlDatabase::database(m_connectionName, false));
+        q.prepare(QStringLiteral(
+            "INSERT INTO files (file_id, name, mime, sha256, blob_path, size, received, owner, complete, created_ms) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(file_id) DO UPDATE SET "
+            "name=excluded.name, mime=excluded.mime, sha256=excluded.sha256, "
+            "blob_path=excluded.blob_path, size=excluded.size, received=excluded.received, "
+            "owner=excluded.owner, complete=excluded.complete"));
+        q.addBindValue(file.fileId);
+        q.addBindValue(file.name);
+        q.addBindValue(file.mime);
+        q.addBindValue(file.sha256);
+        q.addBindValue(file.blobPath);
+        q.addBindValue(qint64(file.size));
+        q.addBindValue(qint64(file.received));
+        q.addBindValue(qint64(file.owner));
+        q.addBindValue(file.complete ? 1 : 0);
+        q.addBindValue(file.createdMs == 0 ? QDateTime::currentMSecsSinceEpoch() : file.createdMs);
+        if (!q.exec()) {
+            qCWarning(lcStorage) << "saveFile failed:" << q.lastError().text();
+            return false;
+        }
+        return true;
+    });
 }
 
 QFuture<std::optional<FileRecord>> StorageManager::fileById(const QString &fileId)
 {
-    Q_UNUSED(fileId)
-    return QtFuture::makeReadyValueFuture(std::optional<FileRecord>{});
+    return post<std::optional<FileRecord>>([this, fileId]() -> std::optional<FileRecord> {
+        QSqlQuery q(QSqlDatabase::database(m_connectionName, false));
+        q.prepare(QStringLiteral("SELECT %1 FROM files WHERE file_id = ?").arg(kFileColumns));
+        q.addBindValue(fileId);
+        if (!q.exec()) {
+            qCWarning(lcStorage) << "fileById failed:" << q.lastError().text();
+            return std::nullopt;
+        }
+        if (!q.next())
+            return std::nullopt;
+        return readFile(q);
+    });
 }
 
 QFuture<std::optional<FileRecord>> StorageManager::fileBySha(const QString &sha256)
 {
-    Q_UNUSED(sha256)
-    return QtFuture::makeReadyValueFuture(std::optional<FileRecord>{});
+    return post<std::optional<FileRecord>>([this, sha256]() -> std::optional<FileRecord> {
+        QSqlQuery q(QSqlDatabase::database(m_connectionName, false));
+        // Prefer a complete blob for dedup.
+        q.prepare(QStringLiteral(
+            "SELECT %1 FROM files WHERE sha256 = ? ORDER BY complete DESC, created_ms ASC LIMIT 1")
+                      .arg(kFileColumns));
+        q.addBindValue(sha256);
+        if (!q.exec()) {
+            qCWarning(lcStorage) << "fileBySha failed:" << q.lastError().text();
+            return std::nullopt;
+        }
+        if (!q.next())
+            return std::nullopt;
+        return readFile(q);
+    });
 }
 
 QFuture<bool> StorageManager::updateFileProgress(const QString &fileId, quint64 received, bool complete)
 {
-    Q_UNUSED(fileId)
-    Q_UNUSED(received)
-    Q_UNUSED(complete)
-    return QtFuture::makeReadyValueFuture(false);
+    return post<bool>([this, fileId, received, complete] {
+        QSqlQuery q(QSqlDatabase::database(m_connectionName, false));
+        q.prepare(QStringLiteral(
+            "UPDATE files SET received = ?, complete = ? WHERE file_id = ?"));
+        q.addBindValue(qint64(received));
+        q.addBindValue(complete ? 1 : 0);
+        q.addBindValue(fileId);
+        if (!q.exec()) {
+            qCWarning(lcStorage) << "updateFileProgress failed:" << q.lastError().text();
+            return false;
+        }
+        return q.numRowsAffected() > 0;
+    });
 }
 
 QFuture<bool> StorageManager::saveMeeting(const MeetingRecord &meeting)

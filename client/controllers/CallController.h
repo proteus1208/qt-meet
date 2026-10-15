@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QAbstractItemModel>
+#include <QList>
 #include <QObject>
 #include <QVideoSink>
 
@@ -24,6 +25,7 @@ class CallController : public QObject
     Q_PROPERTY(QString meetingCode READ meetingCode NOTIFY meetingChanged)
     Q_PROPERTY(QString meetingTitle READ meetingTitle NOTIFY meetingChanged)
     Q_PROPERTY(QString peerName READ peerName NOTIFY stateChanged)
+    Q_PROPERTY(qint64 peerId READ peerId NOTIFY stateChanged)
     Q_PROPERTY(bool micEnabled READ micEnabled WRITE setMicEnabled NOTIFY micEnabledChanged)
     Q_PROPERTY(bool cameraEnabled READ cameraEnabled WRITE setCameraEnabled NOTIFY cameraEnabledChanged)
 
@@ -39,6 +41,7 @@ public:
     QString             meetingCode() const;
     QString             meetingTitle() const;
     QString             peerName() const;
+    qint64              peerId() const;
     bool                micEnabled() const;
     void                setMicEnabled(bool enabled);
     bool                cameraEnabled() const;
@@ -74,6 +77,7 @@ private:
     void onMeetingJoined(const proto::MeetingJoined &joined);
     void onParticipantEvent(const proto::ParticipantEvt &event);
     void setState(State state);
+    void flushPendingSignals();
 
     NetworkClient     *m_network = nullptr;
     SessionController *m_session = nullptr;
@@ -88,6 +92,7 @@ private:
     bool               m_video = true;
     bool               m_micEnabled = true;
     bool               m_cameraEnabled = true;
+    QList<proto::RtcSignal> m_pendingSignals;
 };
 
 } // namespace qm

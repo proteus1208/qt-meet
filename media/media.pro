@@ -2,7 +2,10 @@ include(../config/staticlib.pri)
 include(../config/ffmpeg.pri)
 
 TARGET = qmmedia
-QT    += core multimedia
+QT    += core gui multimedia
+
+# FFmpeg C APIs need these on some toolchains.
+DEFINES += __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS
 
 HEADERS += \
     AudioOutput.h \

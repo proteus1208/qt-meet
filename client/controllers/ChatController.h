@@ -30,6 +30,7 @@ class ChatController : public QObject
     Q_PROPERTY(qint64 activePeerId READ activePeerId NOTIFY activeConversationChanged)
     Q_PROPERTY(QString activePeerName READ activePeerName NOTIFY activeConversationChanged)
     Q_PROPERTY(int activePeerPresence READ activePeerPresence NOTIFY activePeerPresenceChanged)
+    Q_PROPERTY(bool hasMoreMessages READ hasMoreMessages NOTIFY hasMoreMessagesChanged)
 
 public:
     ChatController(NetworkClient *network, SessionController *session, FileTransfer *files,
@@ -43,6 +44,7 @@ public:
     qint64              activePeerId() const;
     QString             activePeerName() const;
     int                 activePeerPresence() const;
+    bool                hasMoreMessages() const;
 
     Q_INVOKABLE void searchUsers(const QString &query);
     Q_INVOKABLE void openConversationWith(qint64 userId, const QString &displayName);
@@ -54,6 +56,7 @@ public:
 Q_SIGNALS:
     void activeConversationChanged();
     void activePeerPresenceChanged();
+    void hasMoreMessagesChanged();
     void incomingMessage(const QString &fromName, const QString &text);
 
 private:

@@ -2,6 +2,10 @@
 
 #include "MediaTypes.h"
 
+extern "C" {
+#include <libavutil/pixfmt.h>
+}
+
 namespace qm {
 
 /// Aim: audio / video decoding with optional hardware frames (D3D11VA, CUDA, VAAPI, QSV)
@@ -30,11 +34,13 @@ public:
 
 private:
     bool setupHardware(HwDevice device);
+    static enum AVPixelFormat getHwFormat(AVCodecContext *ctx, const enum AVPixelFormat *pix_fmts);
 
     AVCodecContext *m_context = nullptr;
     AVBufferRef    *m_hwDevice = nullptr;
     HwDevice        m_device = HwDevice::None;
     MediaType       m_type = MediaType::Other;
+    int             m_hwPixFmt = -1; // AVPixelFormat
 };
 
 } // namespace qm

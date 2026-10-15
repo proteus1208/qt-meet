@@ -119,13 +119,15 @@ void AuthService::onLogin(const RequestContext &context, const proto::Envelope &
     }
 
     m_sessions->bind(context.conn, user->id, user->displayName);
-    if (m_http)
-        m_http->issueToken(user->id);
+    const QString token = m_http ? m_http->issueToken(user->id) : Ids::uuid();
+    const QString httpBase = (m_http && !m_http->baseUrl().isEmpty())
+                                 ? m_http->baseUrl()
+                                 : QStringLiteral("http://127.0.0.1:%1").arg(m_settings.httpPort);
 
     res->set_ok(true);
     res->set_error(proto::ERR_NONE);
-    res->set_session_token(Ids::uuid().toStdString());
-    res->set_http_base_url(QStringLiteral("http://127.0.0.1:%1").arg(m_settings.httpPort).toStdString());
+    res->set_session_token(token.toStdString());
+    res->set_http_base_url(httpBase.toStdString());
     res->set_rtc_port_min(m_settings.rtcPortMin);
     res->set_rtc_port_max(m_settings.rtcPortMax);
 
@@ -150,6 +152,8 @@ void AuthService::onLogout(const RequestContext &context, const proto::Envelope 
     if (context.user == 0)
         return;
 
+    if (m_http)
+        m_http->revokeUser(context.user);
     m_sessions->unbind(context.conn);
 
     proto::Envelope evt = EnvelopeFactory::event();

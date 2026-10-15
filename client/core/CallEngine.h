@@ -35,6 +35,8 @@ public:
                QObject *parent = nullptr);
     ~CallEngine() override;
 
+    void setRtcConfig(const RtcConfig &config);
+
     bool startSession(const QString &sessionId, bool audio, bool video);
     void stopSession();
     bool isActive() const;

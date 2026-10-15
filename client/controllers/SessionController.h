@@ -41,6 +41,8 @@ public:
 
     QString sessionToken() const;
     QString httpBaseUrl() const;
+    quint16 rtcPortMin() const;
+    quint16 rtcPortMax() const;
 
     Q_INVOKABLE void login(const QString &username, const QString &password);
     Q_INVOKABLE void registerUser(const QString &username, const QString &displayName, const QString &password);
@@ -65,6 +67,8 @@ private:
     QString         m_token;
     QString         m_httpBaseUrl;
     QString         m_error;
+    quint16         m_rtcPortMin = 40000;
+    quint16         m_rtcPortMax = 40100;
     bool            m_loggedIn = false;
     bool            m_busy = false;
 };

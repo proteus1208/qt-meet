@@ -6,6 +6,7 @@
 #include <QSslKey>
 #include <QThread>
 
+#include "common/Ids.h"
 #include "common/Logger.h"
 #include "dispatch/Dispatcher.h"
 #include "net/ConnectionManager.h"
@@ -17,6 +18,7 @@
 #include "services/MeetingService.h"
 #include "services/UserService.h"
 #include "storage/StorageManager.h"
+#include "rtc/RtcConfig.h"
 #include "streaming/HttpMediaServer.h"
 #include "streaming/Sfu.h"
 
@@ -75,6 +77,16 @@ bool ServerApp::start()
         Q_EMIT errorOccurred(QStringLiteral("Failed to listen on TCP %1").arg(m_settings.tcpPort));
         stop();
         return false;
+    }
+
+    connect(m_connections.get(), &ConnectionManager::connectionClosed, this, [this](ConnId conn) {
+        if (m_files)
+            m_files->abortUploadsOf(conn);
+    });
+
+    if (!m_http->start(m_settings.bindAddress, m_settings.httpPort)) {
+        qCWarning(lcApp) << "HTTP media server did not start on port" << m_settings.httpPort
+                         << "(chat attachments download may be unavailable)";
     }
 
     m_running = true;
@@ -157,7 +169,7 @@ void ServerApp::buildComponents()
 {
     m_storage = std::make_unique<StorageManager>(databasePath());
     m_sessions = std::make_unique<SessionRegistry>();
-    m_http = std::make_unique<HttpMediaServer>();
+    m_http = std::make_unique<HttpMediaServer>(m_storage.get());
     m_http->setBlobDir(m_settings.dataDir + QStringLiteral("/blobs"));
     m_http->setHostedRoot(m_settings.hostedFolder);
 
@@ -174,8 +186,16 @@ void ServerApp::buildComponents()
     m_folders = std::make_unique<FolderService>(m_sessions.get(), m_http.get());
     m_folders->setRoot(m_settings.hostedFolder);
 
+    RtcConfig rtc;
+    rtc.portRangeBegin = m_settings.rtcPortMin;
+    rtc.portRangeEnd = m_settings.rtcPortMax;
+    m_sfu = std::make_unique<Sfu>(rtc);
+    m_meetings = std::make_unique<MeetingService>(m_storage.get(), m_sessions.get(), m_sfu.get());
+
     connect(m_sessions.get(), &SessionRegistry::userOnline, m_users.get(), &UserService::onUserOnline);
     connect(m_sessions.get(), &SessionRegistry::userOffline, m_users.get(), &UserService::onUserOffline);
+    connect(m_sessions.get(), &SessionRegistry::userOffline, m_meetings.get(),
+            &MeetingService::onUserOffline);
 }
 
 void ServerApp::registerHandlers()
@@ -183,6 +203,19 @@ void ServerApp::registerHandlers()
     m_dispatcher->registerHandler(proto::Envelope::kLoginReq, m_auth.get());
     m_dispatcher->registerHandler(proto::Envelope::kLogout, m_auth.get());
     m_dispatcher->registerHandler(proto::Envelope::kUserSearchReq, m_users.get());
+    m_dispatcher->registerHandler(proto::Envelope::kChatSend, m_chat.get());
+    m_dispatcher->registerHandler(proto::Envelope::kChatHistoryReq, m_chat.get());
+    m_dispatcher->registerHandler(proto::Envelope::kFileOffer, m_files.get());
+    m_dispatcher->registerHandler(proto::Envelope::kFileChunk, m_files.get());
+    m_dispatcher->registerHandler(proto::Envelope::kDirListReq, m_folders.get());
+    m_dispatcher->registerHandler(proto::Envelope::kCallInvite, m_meetings.get());
+    m_dispatcher->registerHandler(proto::Envelope::kCallAnswer, m_meetings.get());
+    m_dispatcher->registerHandler(proto::Envelope::kCallHangup, m_meetings.get());
+    m_dispatcher->registerHandler(proto::Envelope::kRtcSignal, m_meetings.get());
+    m_dispatcher->registerHandler(proto::Envelope::kMediaState, m_meetings.get());
+    m_dispatcher->registerHandler(proto::Envelope::kMeetingCreate, m_meetings.get());
+    m_dispatcher->registerHandler(proto::Envelope::kMeetingJoin, m_meetings.get());
+    m_dispatcher->registerHandler(proto::Envelope::kMeetingLeave, m_meetings.get());
 }
 
 QSslConfiguration ServerApp::loadSsl() const

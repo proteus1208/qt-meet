@@ -8,6 +8,7 @@
 #include "messages.pb.h"
 
 class QNetworkAccessManager;
+class QFile;
 
 namespace qm {
 
@@ -40,14 +41,16 @@ Q_SIGNALS:
 private:
     struct Transfer;
 
+    void fail(Transfer *transfer, const QString &reason);
+    void startUpload(Transfer *transfer);
+    void sendNextChunks(Transfer *transfer);
     void onEvent(const proto::Envelope &envelope);
-    void sendNextChunks(const QString &transferId);
 
-    NetworkClient          *m_network = nullptr;
-    TransferModel          *m_model = nullptr;
-    QNetworkAccessManager  *m_http = nullptr;
-    QString                 m_baseUrl;
-    QString                 m_token;
+    NetworkClient         *m_network = nullptr;
+    TransferModel         *m_model = nullptr;
+    QNetworkAccessManager *m_http = nullptr;
+    QString                m_baseUrl;
+    QString                m_token;
     QHash<QString, Transfer *> m_transfers;
 };
 

@@ -14,9 +14,27 @@ int ParticipantModel::rowCount(const QModelIndex &parent) const
 
 QVariant ParticipantModel::data(const QModelIndex &index, int role) const
 {
-    Q_UNUSED(index)
-    Q_UNUSED(role)
-    return {};
+    if (!index.isValid() || index.row() < 0 || index.row() >= m_items.size())
+        return {};
+    const Item &item = m_items.at(index.row());
+    const auto &user = item.participant.user();
+    switch (role) {
+    case UserIdRole:
+        return qint64(user.id());
+    case Qt::DisplayRole:
+    case DisplayNameRole:
+        return QString::fromStdString(user.display_name());
+    case AudioOnRole:
+        return item.participant.audio_on();
+    case VideoOnRole:
+        return item.participant.video_on();
+    case SpeakingRole:
+        return item.speaking;
+    case IsLocalRole:
+        return item.local;
+    default:
+        return {};
+    }
 }
 
 QHash<int, QByteArray> ParticipantModel::roleNames() const
@@ -33,28 +51,74 @@ QHash<int, QByteArray> ParticipantModel::roleNames() const
 
 void ParticipantModel::setParticipants(const QList<proto::Participant> &participants, UserId localUser)
 {
-    Q_UNUSED(participants)
+    beginResetModel();
     m_localUser = localUser;
+    m_items.clear();
+    for (const proto::Participant &p : participants) {
+        Item item;
+        item.participant = p;
+        item.local = (p.user().id() == localUser);
+        if (item.local)
+            m_items.prepend(item);
+        else
+            m_items.append(item);
+    }
+    endResetModel();
 }
 
 void ParticipantModel::upsert(const proto::Participant &participant)
 {
-    Q_UNUSED(participant)
+    const UserId id = participant.user().id();
+    for (int row = 0; row < m_items.size(); ++row) {
+        if (m_items[row].participant.user().id() != id)
+            continue;
+        m_items[row].participant = participant;
+        const QModelIndex idx = index(row);
+        Q_EMIT dataChanged(idx, idx);
+        return;
+    }
+    Item item;
+    item.participant = participant;
+    item.local = (id == m_localUser);
+    const int row = item.local ? 0 : int(m_items.size());
+    beginInsertRows({}, row, row);
+    m_items.insert(row, item);
+    endInsertRows();
 }
 
 void ParticipantModel::remove(UserId user)
 {
-    Q_UNUSED(user)
+    for (int row = 0; row < m_items.size(); ++row) {
+        if (m_items[row].participant.user().id() != user)
+            continue;
+        beginRemoveRows({}, row, row);
+        m_items.removeAt(row);
+        endRemoveRows();
+        return;
+    }
 }
 
 void ParticipantModel::setSpeaking(UserId user, bool speaking)
 {
-    Q_UNUSED(user)
-    Q_UNUSED(speaking)
+    for (int row = 0; row < m_items.size(); ++row) {
+        if (m_items[row].participant.user().id() != user)
+            continue;
+        if (m_items[row].speaking == speaking)
+            return;
+        m_items[row].speaking = speaking;
+        const QModelIndex idx = index(row);
+        Q_EMIT dataChanged(idx, idx, {SpeakingRole});
+        return;
+    }
 }
 
 void ParticipantModel::clear()
 {
+    if (m_items.isEmpty())
+        return;
+    beginResetModel();
+    m_items.clear();
+    endResetModel();
 }
 
 } // namespace qm

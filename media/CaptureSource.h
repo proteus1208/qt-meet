@@ -9,6 +9,8 @@
 
 namespace qm {
 
+class CaptureWorker;
+
 /// Aim: live input (local camera, microphone, RTSP IP camera, file loop) producing raw frames
 /// for the Encoder, plus an optional local preview sink.
 class CaptureSource : public QObject
@@ -42,6 +44,8 @@ private:
     SourceSpec           m_audioSpec;
     QThread             *m_videoThread = nullptr;
     QThread             *m_audioThread = nullptr;
+    CaptureWorker       *m_videoWorker = nullptr;
+    CaptureWorker       *m_audioWorker = nullptr;
     QPointer<QVideoSink> m_preview;
     bool                 m_running = false;
     bool                 m_videoEnabled = true;

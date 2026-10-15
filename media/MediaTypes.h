@@ -98,3 +98,4 @@ QString errorString(int averror);
 
 Q_DECLARE_METATYPE(qm::FrameRef)
 Q_DECLARE_METATYPE(qm::PacketRef)
+Q_DECLARE_METATYPE(qm::HwPolicy)

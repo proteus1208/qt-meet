@@ -1,6 +1,7 @@
 #include "SessionController.h"
 
 #include <QFutureWatcher>
+#include <QUrl>
 
 #include "common/EnvelopeFactory.h"
 #include "common/Logger.h"
@@ -90,6 +91,16 @@ QString SessionController::sessionToken() const
 QString SessionController::httpBaseUrl() const
 {
     return m_httpBaseUrl;
+}
+
+quint16 SessionController::rtcPortMin() const
+{
+    return m_rtcPortMin;
+}
+
+quint16 SessionController::rtcPortMax() const
+{
+    return m_rtcPortMax;
 }
 
 void SessionController::login(const QString &username, const QString &password)
@@ -211,6 +222,24 @@ void SessionController::onLoginReply(const proto::Envelope &reply)
     m_me = res.me();
     m_token = QString::fromStdString(res.session_token());
     m_httpBaseUrl = QString::fromStdString(res.http_base_url());
+    if (res.rtc_port_min() > 0)
+        m_rtcPortMin = quint16(res.rtc_port_min());
+    if (res.rtc_port_max() > 0)
+        m_rtcPortMax = quint16(res.rtc_port_max());
+    // Server may advertise 127.0.0.1 when bound to Any; rewrite to the host we dialed.
+    {
+        QUrl http(m_httpBaseUrl);
+        const QString host = http.host();
+        if (host.isEmpty() || host == QLatin1String("127.0.0.1") || host == QLatin1String("localhost")
+            || host == QLatin1String("::1")) {
+            if (http.scheme().isEmpty())
+                http.setScheme(QStringLiteral("http"));
+            http.setHost(m_serverHost);
+            if (http.port() <= 0)
+                http.setPort(7401);
+            m_httpBaseUrl = http.toString();
+        }
+    }
     m_loggedIn = true;
     m_error.clear();
     Q_EMIT errorChanged();

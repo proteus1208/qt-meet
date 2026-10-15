@@ -2,6 +2,7 @@
 
 #include <QAbstractItemModel>
 #include <QObject>
+#include <QUrl>
 
 #include "media/MediaPlayer.h"
 #include "messages.pb.h"
@@ -19,6 +20,7 @@ class ExplorerController : public QObject
     Q_PROPERTY(QAbstractItemModel *files READ files CONSTANT)
     Q_PROPERTY(QString currentPath READ currentPath NOTIFY currentPathChanged)
     Q_PROPERTY(bool canGoUp READ canGoUp NOTIFY currentPathChanged)
+    Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
     Q_PROPERTY(qm::MediaPlayer *player READ player CONSTANT)
 
 public:
@@ -28,19 +30,23 @@ public:
     QAbstractItemModel *files() const;
     QString             currentPath() const;
     bool                canGoUp() const;
+    bool                busy() const;
     MediaPlayer        *player() const;
 
     Q_INVOKABLE void refresh();
     Q_INVOKABLE void openPath(const QString &path);
     Q_INVOKABLE void openEntry(int row);           // folder: navigate, file: play
     Q_INVOKABLE void goUp();
+    Q_INVOKABLE void openMedia(const QUrl &url);   // local file, http, rtsp
 
 Q_SIGNALS:
     void currentPathChanged();
+    void busyChanged();
     void playRequested(const QString &name);
     void errorOccurred(const QString &message);
 
 private:
+    void requestListing(const QString &path);
     void onListing(const proto::DirListRes &listing);
 
     NetworkClient     *m_network = nullptr;
@@ -48,6 +54,8 @@ private:
     RemoteFsModel     *m_files = nullptr;
     MediaPlayer       *m_player = nullptr;
     QString            m_currentPath;
+    bool               m_busy = false;
+    quint64            m_latestListSeq = 0;
 };
 
 } // namespace qm
