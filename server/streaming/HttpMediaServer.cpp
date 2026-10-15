@@ -83,6 +83,15 @@ void HttpMediaServer::stop()
     m_baseUrl.clear();
 }
 
+bool HttpMediaServer::isListening() const
+{
+#ifdef QM_HAVE_HTTPSERVER
+    return m_tcp && m_tcp->isListening() && !m_baseUrl.isEmpty();
+#else
+    return false;
+#endif
+}
+
 void HttpMediaServer::setHostedRoot(const QString &absolutePath)
 {
     QWriteLocker locker(&m_lock);

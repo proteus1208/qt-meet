@@ -38,6 +38,7 @@ public:
 
     void    setHostedFolder(const QString &absolutePath);
     QString hostedFolder() const;
+    bool    httpMediaListening() const;
 
     SessionRegistry   *sessions() const;
     ConnectionManager *connections() const;

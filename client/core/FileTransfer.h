@@ -30,6 +30,8 @@ public:
 
     QString upload(const QString &localPath, ConversationId conversation, UserId toUser);
     QString download(const QString &fileId, const QString &name, const QString &destinationDir);
+    /// Download an arbitrary authenticated HTTP URL (hosted folder files use /hosted?path=…&t=…).
+    QString downloadUrl(const QUrl &url, const QString &name, const QString &destinationDir);
     void    cancel(const QString &transferId);
 
 Q_SIGNALS:

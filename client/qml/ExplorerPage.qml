@@ -151,10 +151,11 @@ Page {
         anchors.centerIn: parent
         title: qsTr("Files")
         standardButtons: Dialog.Ok
-        Label {
+        width: Math.min(360, page.width - 40)
+        contentItem: Label {
             id: errorLabel
             wrapMode: Text.Wrap
-            width: 280
+            width: errorPopup.availableWidth
         }
     }
 }

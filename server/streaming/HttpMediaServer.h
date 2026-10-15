@@ -31,12 +31,13 @@ public:
 
     bool start(const QHostAddress &address, quint16 port);
     void stop();
+    bool isListening() const;
 
     void    setHostedRoot(const QString &absolutePath);
     QString hostedRoot() const;
     void    setBlobDir(const QString &absolutePath);
     void    setStorage(StorageManager *storage);
-    QString baseUrl() const;                         // http://<server-ip>:<port>
+    QString baseUrl() const;                         // http://<server-ip>:<port>, empty if not listening
 
     QString issueToken(UserId user);
     void    revokeToken(const QString &token);

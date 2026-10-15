@@ -140,7 +140,10 @@ void ExplorerController::openEntry(int row)
 
     const QUrl url = m_files->urlOf(row);
     if (url.isEmpty()) {
-        Q_EMIT errorOccurred(QStringLiteral("Cannot build media URL (login / hosted folder?)"));
+        Q_EMIT errorOccurred(
+            QStringLiteral("Cannot play: HTTP media server is not available on the "
+                           "QtMeet server (port 7401). Check the admin window for "
+                           "\"HTTP … (DOWN)\" and install Qt HTTP Server if needed."));
         return;
     }
     openMedia(url);
@@ -169,10 +172,12 @@ void ExplorerController::openMedia(const QUrl &url)
 void ExplorerController::onListing(const proto::DirListRes &listing)
 {
     proto::DirListRes adjusted = listing;
-    QUrl prefix(QString::fromStdString(adjusted.http_url_prefix()));
+    const QString rawPrefix = QString::fromStdString(adjusted.http_url_prefix());
+    QUrl prefix(rawPrefix);
     const QString host = prefix.host();
-    if (host.isEmpty() || host == QLatin1String("127.0.0.1") || host == QLatin1String("localhost")
-        || host == QLatin1String("::1")) {
+    const bool loopback = host == QLatin1String("127.0.0.1") || host == QLatin1String("localhost")
+                          || host == QLatin1String("::1");
+    if (!rawPrefix.isEmpty() && (host.isEmpty() || loopback)) {
         // Prefer login http base (already rewritten), else the TCP host we connected to.
         QUrl fromSession(m_session->httpBaseUrl());
         if (prefix.scheme().isEmpty())
@@ -184,6 +189,9 @@ void ExplorerController::onListing(const proto::DirListRes &listing)
         if (prefix.path().isEmpty())
             prefix.setPath(QStringLiteral("/hosted"));
         adjusted.set_http_url_prefix(prefix.toString(QUrl::RemoveQuery).toStdString());
+    } else if (rawPrefix.isEmpty()) {
+        // Server HTTP media is down — keep empty so openEntry reports a clear error.
+        adjusted.clear_http_url_prefix();
     }
 
     m_files->setListing(adjusted, m_session->sessionToken());

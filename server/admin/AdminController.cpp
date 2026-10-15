@@ -47,9 +47,11 @@ QString AdminController::listenInfo() const
     if (!m_server->isRunning())
         return QStringLiteral("Stopped");
     const auto &s = m_server->settings();
-    return QStringLiteral("TCP %1 | HTTP %2 | UDP %3-%4")
+    const bool httpUp = m_server->httpMediaListening();
+    return QStringLiteral("TCP %1 | HTTP %2%3 | UDP %4-%5")
         .arg(s.tcpPort)
         .arg(s.httpPort)
+        .arg(httpUp ? QString() : QStringLiteral(" (DOWN)"))
         .arg(s.rtcPortMin)
         .arg(s.rtcPortMax);
 }

@@ -120,9 +120,9 @@ void AuthService::onLogin(const RequestContext &context, const proto::Envelope &
 
     m_sessions->bind(context.conn, user->id, user->displayName);
     const QString token = m_http ? m_http->issueToken(user->id) : Ids::uuid();
-    const QString httpBase = (m_http && !m_http->baseUrl().isEmpty())
-                                 ? m_http->baseUrl()
-                                 : QStringLiteral("http://127.0.0.1:%1").arg(m_settings.httpPort);
+    // Only advertise a real listening base URL — a fake 127.0.0.1:port makes the
+    // client fail with FFmpeg "Error number -138" (connection refused) on play.
+    const QString httpBase = (m_http && m_http->isListening()) ? m_http->baseUrl() : QString();
 
     res->set_ok(true);
     res->set_error(proto::ERR_NONE);

@@ -227,7 +227,8 @@ void SessionController::onLoginReply(const proto::Envelope &reply)
     if (res.rtc_port_max() > 0)
         m_rtcPortMax = quint16(res.rtc_port_max());
     // Server may advertise 127.0.0.1 when bound to Any; rewrite to the host we dialed.
-    {
+    // Empty http_base_url means the server's HTTP media listener is down — leave it empty.
+    if (!m_httpBaseUrl.isEmpty()) {
         QUrl http(m_httpBaseUrl);
         const QString host = http.host();
         if (host.isEmpty() || host == QLatin1String("127.0.0.1") || host == QLatin1String("localhost")

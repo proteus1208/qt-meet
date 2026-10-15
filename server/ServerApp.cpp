@@ -85,8 +85,14 @@ bool ServerApp::start()
     });
 
     if (!m_http->start(m_settings.bindAddress, m_settings.httpPort)) {
-        qCWarning(lcApp) << "HTTP media server did not start on port" << m_settings.httpPort
-                         << "(chat attachments download may be unavailable)";
+        const QString msg =
+            QStringLiteral(
+                "HTTP media server did not start on port %1. "
+                "Video/audio playback and attachment downloads will fail. "
+                "Install the Qt HTTP Server module and rebuild, or free the port.")
+                .arg(m_settings.httpPort);
+        qCWarning(lcApp) << msg;
+        Q_EMIT errorOccurred(msg);
     }
 
     m_running = true;
@@ -143,6 +149,11 @@ void ServerApp::setHostedFolder(const QString &absolutePath)
 QString ServerApp::hostedFolder() const
 {
     return m_settings.hostedFolder;
+}
+
+bool ServerApp::httpMediaListening() const
+{
+    return m_http && m_http->isListening();
 }
 
 SessionRegistry *ServerApp::sessions() const
