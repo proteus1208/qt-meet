@@ -45,7 +45,7 @@ public:
     void    revokeUser(UserId user);
     UserId  validateToken(const QString &token) const;
 
-private slots:
+private Q_SLOTS:
     void onNewConnection();
 
 private:
