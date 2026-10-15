@@ -10,6 +10,7 @@
         <file>qml/ExplorerPage.qml</file>
         <file>qml/PlayerPage.qml</file>
         <file>qml/components/VideoTile.qml</file>
+        <file>qml/components/CallMediaControls.qml</file>
         <file>qml/theme/Theme.qml</file>
     </qresource>
 </RCC>

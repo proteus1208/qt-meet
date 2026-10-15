@@ -111,6 +111,20 @@ QString FileTransfer::download(const QString &fileId, const QString &name, const
         return {};
     }
 
+    QUrl url(m_baseUrl + QStringLiteral("/files/") + QString::fromUtf8(QUrl::toPercentEncoding(fileId)));
+    QUrlQuery query;
+    query.addQueryItem(QStringLiteral("t"), m_token);
+    url.setQuery(query);
+    return downloadUrl(url, name.isEmpty() ? fileId : name, destinationDir);
+}
+
+QString FileTransfer::downloadUrl(const QUrl &url, const QString &name, const QString &destinationDir)
+{
+    if (!url.isValid() || url.scheme().isEmpty()) {
+        Q_EMIT failed({}, QStringLiteral("Invalid download URL"));
+        return {};
+    }
+
     QString dir = destinationDir;
     if (dir.isEmpty()) {
         dir = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
@@ -119,19 +133,20 @@ QString FileTransfer::download(const QString &fileId, const QString &name, const
     }
     QDir().mkpath(dir);
 
+    QString fileName = name;
+    if (fileName.isEmpty()) {
+        fileName = url.fileName();
+        if (fileName.isEmpty())
+            fileName = QStringLiteral("download.bin");
+    }
+
     auto *transfer = new Transfer;
     transfer->transferId = Ids::uuid();
-    transfer->fileId = fileId;
-    transfer->name = name.isEmpty() ? fileId : name;
+    transfer->name = fileName;
     transfer->localPath = QDir(dir).filePath(transfer->name);
     transfer->upload = false;
     m_transfers.insert(transfer->transferId, transfer);
     m_model->add(transfer->transferId, transfer->name, 0, false);
-
-    QUrl url(m_baseUrl + QStringLiteral("/files/") + QString::fromUtf8(QUrl::toPercentEncoding(fileId)));
-    QUrlQuery query;
-    query.addQueryItem(QStringLiteral("t"), m_token);
-    url.setQuery(query);
 
     QNetworkRequest request(url);
     QNetworkReply *reply = m_http->get(request);

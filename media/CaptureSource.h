@@ -26,10 +26,18 @@ public:
     void stop();
     bool isRunning() const;
 
+    /// Hot-swap the live video device (camera ↔ screen) without touching audio.
+    bool reopenVideo(const SourceSpec &video);
+    /// Hot-swap the live microphone.
+    bool reopenAudio(const SourceSpec &audio);
+
     void setVideoEnabled(bool enabled);
     void setAudioEnabled(bool enabled);
     void setPreviewSink(QVideoSink *sink);
     void setOutputSize(int width, int height, int fps);   // applied when the device allows it
+
+    SourceSpec videoSpec() const;
+    SourceSpec audioSpec() const;
 
 Q_SIGNALS:
     void videoFrame(const qm::FrameRef &frame);
@@ -37,8 +45,10 @@ Q_SIGNALS:
     void errorOccurred(const QString &message);
 
 private:
-    void videoLoop();
-    void audioLoop();
+    void stopVideo();
+    void stopAudio();
+    void startVideo();
+    void startAudio();
 
     SourceSpec           m_videoSpec;
     SourceSpec           m_audioSpec;

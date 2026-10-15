@@ -3,9 +3,11 @@
 #include <QAbstractItemModel>
 #include <QList>
 #include <QObject>
+#include <QStringList>
 #include <QVideoSink>
 
 #include "common/Ids.h"
+#include "media/MediaTypes.h"
 #include "messages.pb.h"
 
 namespace qm {
@@ -16,7 +18,8 @@ class ParticipantModel;
 class SessionController;
 
 /// Aim: call and meeting state machine for QML: invite / accept / hang up a 1:1 call,
-/// create a meeting (get code) or join one by code, toggle mic / camera, bind video tiles.
+/// create a meeting (get code) or join one by code, toggle mic / camera / speaker,
+/// pick devices, share screen, bind video tiles.
 class CallController : public QObject
 {
     Q_OBJECT
@@ -28,6 +31,14 @@ class CallController : public QObject
     Q_PROPERTY(qint64 peerId READ peerId NOTIFY stateChanged)
     Q_PROPERTY(bool micEnabled READ micEnabled WRITE setMicEnabled NOTIFY micEnabledChanged)
     Q_PROPERTY(bool cameraEnabled READ cameraEnabled WRITE setCameraEnabled NOTIFY cameraEnabledChanged)
+    Q_PROPERTY(bool speakerEnabled READ speakerEnabled WRITE setSpeakerEnabled NOTIFY speakerEnabledChanged)
+    Q_PROPERTY(bool screenSharing READ screenSharing WRITE setScreenSharing NOTIFY screenSharingChanged)
+    Q_PROPERTY(QStringList cameraDevices READ cameraDevices NOTIFY devicesChanged)
+    Q_PROPERTY(QStringList microphoneDevices READ microphoneDevices NOTIFY devicesChanged)
+    Q_PROPERTY(QStringList speakerDevices READ speakerDevices NOTIFY devicesChanged)
+    Q_PROPERTY(int cameraIndex READ cameraIndex WRITE setCameraIndex NOTIFY deviceSelectionChanged)
+    Q_PROPERTY(int microphoneIndex READ microphoneIndex WRITE setMicrophoneIndex NOTIFY deviceSelectionChanged)
+    Q_PROPERTY(int speakerIndex READ speakerIndex WRITE setSpeakerIndex NOTIFY deviceSelectionChanged)
 
 public:
     enum class State { Idle, Outgoing, Incoming, InCall, InMeeting };
@@ -46,7 +57,22 @@ public:
     void                setMicEnabled(bool enabled);
     bool                cameraEnabled() const;
     void                setCameraEnabled(bool enabled);
+    bool                speakerEnabled() const;
+    void                setSpeakerEnabled(bool enabled);
+    bool                screenSharing() const;
+    void                setScreenSharing(bool enabled);
 
+    QStringList cameraDevices() const;
+    QStringList microphoneDevices() const;
+    QStringList speakerDevices() const;
+    int         cameraIndex() const;
+    void        setCameraIndex(int index);
+    int         microphoneIndex() const;
+    void        setMicrophoneIndex(int index);
+    int         speakerIndex() const;
+    void        setSpeakerIndex(int index);
+
+    Q_INVOKABLE void refreshDevices();
     Q_INVOKABLE void callUser(qint64 userId, const QString &displayName, bool video);
     Q_INVOKABLE void acceptCall();
     Q_INVOKABLE void rejectCall();
@@ -65,6 +91,10 @@ Q_SIGNALS:
     void meetingChanged();
     void micEnabledChanged();
     void cameraEnabledChanged();
+    void speakerEnabledChanged();
+    void screenSharingChanged();
+    void devicesChanged();
+    void deviceSelectionChanged();
     void incomingCall(const QString &callerName, bool video);
     void callEnded(const QString &reason);
     void errorOccurred(const QString &message);
@@ -80,6 +110,7 @@ private:
     void flushPendingSignals();
     void postMediaState();
     void enterMeeting(const proto::MeetingJoined &joined, bool video);
+    void applySelectedDevices();
 
     NetworkClient     *m_network = nullptr;
     SessionController *m_session = nullptr;
@@ -94,6 +125,15 @@ private:
     bool               m_video = true;
     bool               m_micEnabled = true;
     bool               m_cameraEnabled = true;
+    bool               m_speakerEnabled = true;
+    bool               m_screenSharing = false;
+    QList<SourceSpec>  m_cameras;
+    QList<SourceSpec>  m_microphones;
+    QStringList        m_speakerIds;
+    QStringList        m_speakerNames;
+    int                m_cameraIndex = 0;
+    int                m_microphoneIndex = 0;
+    int                m_speakerIndex = 0;
     QList<proto::RtcSignal> m_pendingSignals;
 };
 

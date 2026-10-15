@@ -31,6 +31,11 @@ Page {
                       : qsTr("Meeting")
             }
             Label {
+                visible: Call.screenSharing
+                text: qsTr("Sharing screen")
+                color: "#8ab4f8"
+            }
+            Label {
                 id: errorLabel
                 color: "#fbbc04"
                 visible: text.length > 0
@@ -62,7 +67,9 @@ Page {
 
             width: grid.cellWidth - 6
             height: grid.cellHeight - 6
-            displayName: tile.displayName
+            displayName: tile.isLocal && Call.screenSharing
+                         ? qsTr("%1 (screen)").arg(tile.displayName)
+                         : tile.displayName
             audioOn: tile.audioOn
             speaking: tile.speaking
 
@@ -79,24 +86,13 @@ Page {
         }
     }
 
-    RowLayout {
+    CallMediaControls {
         id: controls
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.bottom
         anchors.bottomMargin: 12
-        spacing: 12
-
-        Button {
-            text: Call.micEnabled ? qsTr("Mute") : qsTr("Unmute")
-            onClicked: Call.micEnabled = !Call.micEnabled
-        }
-        Button {
-            text: Call.cameraEnabled ? qsTr("Camera off") : qsTr("Camera on")
-            onClicked: Call.cameraEnabled = !Call.cameraEnabled
-        }
-        Button {
-            text: qsTr("Leave")
-            onClicked: Call.leaveMeeting()
-        }
+        showLeave: true
+        leaveText: qsTr("Leave")
+        onLeaveRequested: Call.leaveMeeting()
     }
 }

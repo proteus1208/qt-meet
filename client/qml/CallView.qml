@@ -23,6 +23,9 @@ Page {
         function onCallEnded(reason) {
             endLabel.text = qsTr("Call ended: %1").arg(reason)
         }
+        function onErrorOccurred(message) {
+            endLabel.text = message
+        }
     }
 
     Rectangle {
@@ -48,7 +51,7 @@ Page {
         anchors.right: parent.right
         anchors.bottom: controls.top
         anchors.margins: 12
-        displayName: qsTr("You")
+        displayName: Call.screenSharing ? qsTr("Your screen") : qsTr("You")
         Component.onCompleted: Call.attachLocalPreview(localTile.videoSink)
     }
 
@@ -87,24 +90,13 @@ Page {
         visible: text.length > 0
     }
 
-    RowLayout {
+    CallMediaControls {
         id: controls
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.bottom
         anchors.bottomMargin: 12
-        spacing: 12
-
-        Button {
-            text: Call.micEnabled ? qsTr("Mute") : qsTr("Unmute")
-            onClicked: Call.micEnabled = !Call.micEnabled
-        }
-        Button {
-            text: Call.cameraEnabled ? qsTr("Camera off") : qsTr("Camera on")
-            onClicked: Call.cameraEnabled = !Call.cameraEnabled
-        }
-        Button {
-            text: qsTr("Hang up")
-            onClicked: Call.hangup()
-        }
+        showLeave: true
+        leaveText: qsTr("Hang up")
+        onLeaveRequested: Call.hangup()
     }
 }

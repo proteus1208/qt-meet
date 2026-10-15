@@ -110,19 +110,26 @@ Page {
                         Layout.fillWidth: true
                     }
                 }
-                Label {
+                Button {
+                    visible: !model.isDir
+                    text: qsTr("Download")
+                    flat: true
+                    onClicked: Explorer.downloadEntry(index)
+                }
+                Button {
                     visible: model.isPlayable
                     text: qsTr("Play")
-                    color: palette.highlight
-                    font.pixelSize: 12
+                    flat: true
+                    onClicked: {
+                        Explorer.openEntry(index)
+                        page.StackView.view.push(Qt.resolvedUrl("PlayerPage.qml"))
+                    }
                 }
             }
 
             onClicked: {
-                const wasDir = model.isDir
-                Explorer.openEntry(index)
-                if (!wasDir)
-                    page.StackView.view.push(Qt.resolvedUrl("PlayerPage.qml"))
+                if (model.isDir)
+                    Explorer.openEntry(index)
             }
         }
 
@@ -141,6 +148,14 @@ Page {
         target: Explorer
         function onErrorOccurred(message) {
             errorPopup.text = message
+            errorPopup.open()
+        }
+        function onDownloadStarted(name) {
+            errorPopup.text = qsTr("Downloading “%1”…").arg(name)
+            errorPopup.open()
+        }
+        function onDownloadFinished(localPath) {
+            errorPopup.text = qsTr("Saved to\n%1").arg(localPath)
             errorPopup.open()
         }
     }

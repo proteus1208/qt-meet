@@ -31,6 +31,11 @@ public:
 
     static QList<SourceSpec> enumerateCameras();
     static QList<SourceSpec> enumerateMicrophones();
+    static QList<SourceSpec> enumerateScreens();
+    /// Build a default camera / mic pair for the current platform (first device or defaults).
+    static SourceSpec defaultCamera();
+    static SourceSpec defaultMicrophone();
+    static SourceSpec defaultScreen();
 
 private:
     static int interruptCallback(void *opaque);

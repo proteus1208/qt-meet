@@ -1,6 +1,8 @@
 #include "CallController.h"
 
+#include <QAudioDevice>
 #include <QFutureWatcher>
+#include <QMediaDevices>
 
 #include "common/EnvelopeFactory.h"
 #include "common/Ids.h"
@@ -8,6 +10,7 @@
 #include "controllers/SessionController.h"
 #include "core/CallEngine.h"
 #include "core/NetworkClient.h"
+#include "media/MediaSource.h"
 #include "models/ParticipantModel.h"
 
 namespace qm {
@@ -30,7 +33,14 @@ CallController::CallController(NetworkClient *network, SessionController *sessio
         connect(m_engine, &CallEngine::connectedChanged, this, [this](bool ok) {
             qCInfo(lcRtc) << "Call media connected" << ok;
         });
+        connect(m_engine, &CallEngine::screenSharingChanged, this, [this](bool sharing) {
+            if (m_screenSharing == sharing)
+                return;
+            m_screenSharing = sharing;
+            Q_EMIT screenSharingChanged();
+        });
     }
+    refreshDevices();
 }
 
 CallController::State CallController::state() const
@@ -95,6 +105,152 @@ void CallController::setCameraEnabled(bool enabled)
     Q_EMIT cameraEnabledChanged();
 }
 
+bool CallController::speakerEnabled() const
+{
+    return m_speakerEnabled;
+}
+
+void CallController::setSpeakerEnabled(bool enabled)
+{
+    if (m_speakerEnabled == enabled)
+        return;
+    m_speakerEnabled = enabled;
+    if (m_engine)
+        m_engine->setSpeakerEnabled(enabled);
+    Q_EMIT speakerEnabledChanged();
+}
+
+bool CallController::screenSharing() const
+{
+    return m_screenSharing;
+}
+
+void CallController::setScreenSharing(bool enabled)
+{
+    if (enabled && !m_cameraEnabled)
+        setCameraEnabled(true);
+
+    if (m_engine) {
+        m_engine->setScreenSharing(enabled);
+        const bool actual = m_engine->isScreenSharing();
+        if (m_screenSharing == actual)
+            return;
+        m_screenSharing = actual;
+        Q_EMIT screenSharingChanged();
+        return;
+    }
+    if (m_screenSharing == enabled)
+        return;
+    m_screenSharing = enabled;
+    Q_EMIT screenSharingChanged();
+}
+
+QStringList CallController::cameraDevices() const
+{
+    QStringList names;
+    names.reserve(m_cameras.size());
+    for (const SourceSpec &spec : m_cameras)
+        names.append(spec.displayName.isEmpty() ? spec.location : spec.displayName);
+    return names;
+}
+
+QStringList CallController::microphoneDevices() const
+{
+    QStringList names;
+    names.reserve(m_microphones.size());
+    for (const SourceSpec &spec : m_microphones)
+        names.append(spec.displayName.isEmpty() ? spec.location : spec.displayName);
+    return names;
+}
+
+QStringList CallController::speakerDevices() const
+{
+    return m_speakerNames;
+}
+
+int CallController::cameraIndex() const
+{
+    return m_cameraIndex;
+}
+
+void CallController::setCameraIndex(int index)
+{
+    if (index < 0 || index >= m_cameras.size() || index == m_cameraIndex)
+        return;
+    m_cameraIndex = index;
+    if (m_engine)
+        m_engine->setCamera(m_cameras.at(index));
+    Q_EMIT deviceSelectionChanged();
+}
+
+int CallController::microphoneIndex() const
+{
+    return m_microphoneIndex;
+}
+
+void CallController::setMicrophoneIndex(int index)
+{
+    if (index < 0 || index >= m_microphones.size() || index == m_microphoneIndex)
+        return;
+    m_microphoneIndex = index;
+    if (m_engine)
+        m_engine->setMicrophone(m_microphones.at(index));
+    Q_EMIT deviceSelectionChanged();
+}
+
+int CallController::speakerIndex() const
+{
+    return m_speakerIndex;
+}
+
+void CallController::setSpeakerIndex(int index)
+{
+    if (index < 0 || index >= m_speakerIds.size() || index == m_speakerIndex)
+        return;
+    m_speakerIndex = index;
+    if (m_engine)
+        m_engine->setSpeakerId(m_speakerIds.at(index));
+    Q_EMIT deviceSelectionChanged();
+}
+
+void CallController::refreshDevices()
+{
+    m_cameras = MediaSource::enumerateCameras();
+    m_microphones = MediaSource::enumerateMicrophones();
+
+    m_speakerIds.clear();
+    m_speakerNames.clear();
+    const auto outputs = QMediaDevices::audioOutputs();
+    for (const QAudioDevice &dev : outputs) {
+        m_speakerIds.append(QString::fromUtf8(dev.id()));
+        m_speakerNames.append(dev.description());
+    }
+
+    if (m_cameraIndex < 0 || m_cameraIndex >= m_cameras.size())
+        m_cameraIndex = 0;
+    if (m_microphoneIndex < 0 || m_microphoneIndex >= m_microphones.size())
+        m_microphoneIndex = 0;
+    if (m_speakerIndex < 0 || m_speakerIndex >= m_speakerIds.size())
+        m_speakerIndex = 0;
+
+    applySelectedDevices();
+    Q_EMIT devicesChanged();
+    Q_EMIT deviceSelectionChanged();
+}
+
+void CallController::applySelectedDevices()
+{
+    if (!m_engine)
+        return;
+    if (m_cameraIndex >= 0 && m_cameraIndex < m_cameras.size())
+        m_engine->setCamera(m_cameras.at(m_cameraIndex));
+    if (m_microphoneIndex >= 0 && m_microphoneIndex < m_microphones.size())
+        m_engine->setMicrophone(m_microphones.at(m_microphoneIndex));
+    if (m_speakerIndex >= 0 && m_speakerIndex < m_speakerIds.size())
+        m_engine->setSpeakerId(m_speakerIds.at(m_speakerIndex));
+    m_engine->setSpeakerEnabled(m_speakerEnabled);
+}
+
 void CallController::callUser(qint64 userId, const QString &displayName, bool video)
 {
     if (!m_session->loggedIn() || userId == 0 || m_state != State::Idle)
@@ -141,6 +297,7 @@ void CallController::acceptCall()
     ans->set_accepted(true);
     m_network->post(env);
 
+    applySelectedDevices();
     if (m_engine)
         m_engine->startSession(m_sessionId, true, m_video);
     flushPendingSignals();
@@ -188,6 +345,10 @@ void CallController::hangup()
     m_sessionId.clear();
     m_peer = 0;
     m_peerName.clear();
+    if (m_screenSharing) {
+        m_screenSharing = false;
+        Q_EMIT screenSharingChanged();
+    }
     setState(State::Idle);
     Q_EMIT callEnded(QStringLiteral("hangup"));
 }
@@ -286,6 +447,10 @@ void CallController::leaveMeeting()
     m_sessionId.clear();
     m_meetingCode.clear();
     m_meetingTitle.clear();
+    if (m_screenSharing) {
+        m_screenSharing = false;
+        Q_EMIT screenSharingChanged();
+    }
     setState(State::Idle);
     Q_EMIT meetingChanged();
     Q_EMIT callEnded(QStringLiteral("left"));
@@ -376,6 +541,7 @@ void CallController::onCallAnswer(const proto::CallAnswer &answer)
     }
 
     if (m_state == State::Outgoing) {
+        applySelectedDevices();
         if (m_engine)
             m_engine->startSession(m_sessionId, true, m_video);
         flushPendingSignals();
@@ -479,6 +645,7 @@ void CallController::enterMeeting(const proto::MeetingJoined &joined, bool video
     m_participants->setParticipants(people, m_session->userId());
 
     if (m_engine) {
+        applySelectedDevices();
         m_engine->startSession(m_sessionId, true, video && m_cameraEnabled);
         for (const auto &p : joined.participants()) {
             if (p.user().id() == m_session->userId())

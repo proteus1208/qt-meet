@@ -2,6 +2,7 @@
 
 #include <QAbstractItemModel>
 #include <QObject>
+#include <QSet>
 #include <QUrl>
 
 #include "media/MediaPlayer.h"
@@ -9,6 +10,7 @@
 
 namespace qm {
 
+class FileTransfer;
 class NetworkClient;
 class RemoteFsModel;
 class SessionController;
@@ -24,7 +26,7 @@ class ExplorerController : public QObject
     Q_PROPERTY(qm::MediaPlayer *player READ player CONSTANT)
 
 public:
-    ExplorerController(NetworkClient *network, SessionController *session,
+    ExplorerController(NetworkClient *network, SessionController *session, FileTransfer *transfers,
                        RemoteFsModel *files, MediaPlayer *player, QObject *parent = nullptr);
 
     QAbstractItemModel *files() const;
@@ -36,6 +38,7 @@ public:
     Q_INVOKABLE void refresh();
     Q_INVOKABLE void openPath(const QString &path);
     Q_INVOKABLE void openEntry(int row);           // folder: navigate, file: play
+    Q_INVOKABLE void downloadEntry(int row);       // save hosted file to Downloads
     Q_INVOKABLE void goUp();
     Q_INVOKABLE void openMedia(const QUrl &url);   // local file, http, rtsp
 
@@ -43,6 +46,8 @@ Q_SIGNALS:
     void currentPathChanged();
     void busyChanged();
     void playRequested(const QString &name);
+    void downloadStarted(const QString &name);
+    void downloadFinished(const QString &localPath);
     void errorOccurred(const QString &message);
 
 private:
@@ -51,11 +56,13 @@ private:
 
     NetworkClient     *m_network = nullptr;
     SessionController *m_session = nullptr;
+    FileTransfer      *m_transfers = nullptr;
     RemoteFsModel     *m_files = nullptr;
     MediaPlayer       *m_player = nullptr;
     QString            m_currentPath;
     bool               m_busy = false;
     quint64            m_latestListSeq = 0;
+    QSet<QString>      m_pendingDownloads;
 };
 
 } // namespace qm

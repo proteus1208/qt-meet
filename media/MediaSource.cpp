@@ -1,5 +1,6 @@
 #include "MediaSource.h"
 
+#include <QByteArray>
 #include <QMutex>
 #include <QMutexLocker>
 
@@ -238,21 +239,24 @@ int MediaSource::interruptCallback(void *opaque)
     return self && self->m_interrupt ? 1 : 0;
 }
 
-QList<SourceSpec> MediaSource::enumerateCameras()
-{
-    ensureFfmpeg();
-    QList<SourceSpec> out;
-#if defined(Q_OS_LINUX)
-    const char *fmtName = "v4l2";
-#elif defined(Q_OS_WIN)
-    const char *fmtName = "dshow";
-#else
-    const char *fmtName = nullptr;
-#endif
-    if (!fmtName)
-        return out;
+namespace {
 
-    const AVInputFormat *fmt = av_find_input_format(fmtName);
+#if defined(Q_OS_WIN)
+bool dshowLooksLikeAudio(const QString &name, const QString &desc)
+{
+    const QString hay = (name + QLatin1Char(' ') + desc).toLower();
+    return hay.contains(QStringLiteral("microphone")) || hay.contains(QStringLiteral("mic "))
+           || hay.contains(QStringLiteral("headset")) || hay.contains(QStringLiteral("line in"))
+           || hay.contains(QStringLiteral("stereo mix")) || hay.contains(QStringLiteral("wave "))
+           || hay.startsWith(QStringLiteral("audio="));
+}
+#endif
+
+QList<SourceSpec> listDshowDevices(SourceKind kind)
+{
+    QList<SourceSpec> out;
+#if defined(Q_OS_WIN)
+    const AVInputFormat *fmt = av_find_input_format("dshow");
     if (!fmt)
         return out;
 
@@ -262,37 +266,186 @@ QList<SourceSpec> MediaSource::enumerateCameras()
 
     for (int i = 0; i < list->nb_devices; ++i) {
         const AVDeviceInfo *dev = list->devices[i];
+        if (!dev || !dev->device_name)
+            continue;
+        const QString raw = QString::fromUtf8(dev->device_name);
+        const QString desc = QString::fromUtf8(dev->device_description ? dev->device_description
+                                                                        : dev->device_name);
+        const bool audioish = dshowLooksLikeAudio(raw, desc);
+        if (kind == SourceKind::Camera && audioish)
+            continue;
+        if (kind == SourceKind::Microphone && !audioish)
+            continue;
+
+        SourceSpec spec;
+        spec.kind = kind;
+        spec.format = QStringLiteral("dshow");
+        if (kind == SourceKind::Microphone) {
+            spec.location = raw.startsWith(QStringLiteral("audio="))
+                                ? raw
+                                : (QStringLiteral("audio=") + raw);
+        } else {
+            spec.location = raw.startsWith(QStringLiteral("video="))
+                                ? raw
+                                : (QStringLiteral("video=") + raw);
+        }
+        spec.displayName = desc;
+        out.append(spec);
+    }
+    avdevice_free_list_devices(&list);
+#else
+    Q_UNUSED(kind)
+#endif
+    return out;
+}
+
+} // namespace
+
+QList<SourceSpec> MediaSource::enumerateCameras()
+{
+    ensureFfmpeg();
+    QList<SourceSpec> out;
+#if defined(Q_OS_LINUX)
+    const AVInputFormat *fmt = av_find_input_format("v4l2");
+    if (!fmt)
+        return out;
+    AVDeviceInfoList *list = nullptr;
+    if (avdevice_list_input_sources(fmt, nullptr, nullptr, &list) < 0 || !list)
+        return out;
+    for (int i = 0; i < list->nb_devices; ++i) {
+        const AVDeviceInfo *dev = list->devices[i];
         if (!dev)
             continue;
         SourceSpec spec;
         spec.kind = SourceKind::Camera;
-        spec.format = QString::fromLatin1(fmtName);
+        spec.format = QStringLiteral("v4l2");
         spec.location = QString::fromUtf8(dev->device_name);
-        spec.displayName = QString::fromUtf8(dev->device_description
-                                                 ? dev->device_description
-                                                 : dev->device_name);
+        spec.displayName = QString::fromUtf8(dev->device_description ? dev->device_description
+                                                                      : dev->device_name);
         out.append(spec);
     }
     avdevice_free_list_devices(&list);
+#elif defined(Q_OS_WIN)
+    out = listDshowDevices(SourceKind::Camera);
+#endif
     return out;
 }
 
 QList<SourceSpec> MediaSource::enumerateMicrophones()
 {
-    // Same device list as cameras on many platforms; filter later by open attempt if needed.
-    QList<SourceSpec> cams = enumerateCameras();
-    for (SourceSpec &s : cams)
-        s.kind = SourceKind::Microphone;
+    ensureFfmpeg();
+    QList<SourceSpec> out;
 #if defined(Q_OS_LINUX)
-    // Prefer Pulse / ALSA default.
     SourceSpec def;
     def.kind = SourceKind::Microphone;
     def.format = QStringLiteral("pulse");
     def.location = QStringLiteral("default");
     def.displayName = QStringLiteral("Default microphone");
-    cams.prepend(def);
+    out.append(def);
+
+    const AVInputFormat *fmt = av_find_input_format("pulse");
+    if (fmt) {
+        AVDeviceInfoList *list = nullptr;
+        if (avdevice_list_input_sources(fmt, nullptr, nullptr, &list) >= 0 && list) {
+            for (int i = 0; i < list->nb_devices; ++i) {
+                const AVDeviceInfo *dev = list->devices[i];
+                if (!dev)
+                    continue;
+                const QString name = QString::fromUtf8(dev->device_name);
+                if (name == QLatin1String("default"))
+                    continue;
+                SourceSpec spec;
+                spec.kind = SourceKind::Microphone;
+                spec.format = QStringLiteral("pulse");
+                spec.location = name;
+                spec.displayName = QString::fromUtf8(dev->device_description
+                                                         ? dev->device_description
+                                                         : dev->device_name);
+                out.append(spec);
+            }
+            avdevice_free_list_devices(&list);
+        }
+    }
+#elif defined(Q_OS_WIN)
+    out = listDshowDevices(SourceKind::Microphone);
 #endif
-    return cams;
+    return out;
+}
+
+QList<SourceSpec> MediaSource::enumerateScreens()
+{
+    ensureFfmpeg();
+    QList<SourceSpec> out;
+    SourceSpec primary = defaultScreen();
+    if (!primary.location.isEmpty())
+        out.append(primary);
+    return out;
+}
+
+SourceSpec MediaSource::defaultCamera()
+{
+    const QList<SourceSpec> cams = enumerateCameras();
+    if (!cams.isEmpty())
+        return cams.first();
+#if defined(Q_OS_LINUX)
+    SourceSpec cam;
+    cam.kind = SourceKind::Camera;
+    cam.format = QStringLiteral("v4l2");
+    cam.location = QStringLiteral("/dev/video0");
+    cam.displayName = QStringLiteral("Camera");
+    return cam;
+#elif defined(Q_OS_WIN)
+    SourceSpec cam;
+    cam.kind = SourceKind::Camera;
+    cam.format = QStringLiteral("dshow");
+    cam.displayName = QStringLiteral("Camera");
+    return cam;
+#else
+    return {};
+#endif
+}
+
+SourceSpec MediaSource::defaultMicrophone()
+{
+    const QList<SourceSpec> mics = enumerateMicrophones();
+    if (!mics.isEmpty())
+        return mics.first();
+#if defined(Q_OS_LINUX)
+    SourceSpec mic;
+    mic.kind = SourceKind::Microphone;
+    mic.format = QStringLiteral("pulse");
+    mic.location = QStringLiteral("default");
+    mic.displayName = QStringLiteral("Default microphone");
+    return mic;
+#elif defined(Q_OS_WIN)
+    SourceSpec mic;
+    mic.kind = SourceKind::Microphone;
+    mic.format = QStringLiteral("dshow");
+    mic.displayName = QStringLiteral("Microphone");
+    return mic;
+#else
+    return {};
+#endif
+}
+
+SourceSpec MediaSource::defaultScreen()
+{
+    SourceSpec screen;
+    screen.kind = SourceKind::Screen;
+    screen.displayName = QStringLiteral("Entire screen");
+#if defined(Q_OS_WIN)
+    screen.format = QStringLiteral("gdigrab");
+    screen.location = QStringLiteral("desktop");
+    screen.options.insert(QStringLiteral("framerate"), QStringLiteral("15"));
+#elif defined(Q_OS_LINUX)
+    screen.format = QStringLiteral("x11grab");
+    const QByteArray display = qgetenv("DISPLAY");
+    screen.location = display.isEmpty() ? QStringLiteral(":0.0") : QString::fromLocal8Bit(display);
+    screen.options.insert(QStringLiteral("framerate"), QStringLiteral("15"));
+#else
+    return {};
+#endif
+    return screen;
 }
 
 } // namespace qm

@@ -1,26 +1,45 @@
 #include "ExplorerController.h"
 
 #include <QFutureWatcher>
+#include <QStandardPaths>
 #include <QUrl>
 
 #include "common/EnvelopeFactory.h"
 #include "common/Logger.h"
 #include "controllers/SessionController.h"
+#include "core/FileTransfer.h"
 #include "core/NetworkClient.h"
 #include "models/RemoteFsModel.h"
 
 namespace qm {
 
 ExplorerController::ExplorerController(NetworkClient *network, SessionController *session,
-                                       RemoteFsModel *files, MediaPlayer *player, QObject *parent)
+                                       FileTransfer *transfers, RemoteFsModel *files,
+                                       MediaPlayer *player, QObject *parent)
     : QObject(parent)
     , m_network(network)
     , m_session(session)
+    , m_transfers(transfers)
     , m_files(files)
     , m_player(player)
 {
     if (m_player)
         connect(m_player, &MediaPlayer::errorOccurred, this, &ExplorerController::errorOccurred);
+
+    if (m_transfers) {
+        connect(m_transfers, &FileTransfer::downloaded, this,
+                [this](const QString &id, const QString &localPath) {
+                    if (!m_pendingDownloads.remove(id))
+                        return;
+                    Q_EMIT downloadFinished(localPath);
+                });
+        connect(m_transfers, &FileTransfer::failed, this,
+                [this](const QString &id, const QString &reason) {
+                    if (!id.isEmpty() && !m_pendingDownloads.remove(id))
+                        return;
+                    Q_EMIT errorOccurred(reason);
+                });
+    }
 
     connect(m_session, &SessionController::sessionChanged, this, [this] {
         if (!m_session->loggedIn()) {
@@ -138,6 +157,15 @@ void ExplorerController::openEntry(int row)
         return;
     }
 
+    const QModelIndex idx = m_files->index(row, 0);
+    const bool playable = idx.isValid()
+                          && m_files->data(idx, RemoteFsModel::IsPlayableRole).toBool();
+    if (!playable) {
+        // Non-media files: download instead of attempting playback.
+        downloadEntry(row);
+        return;
+    }
+
     const QUrl url = m_files->urlOf(row);
     if (url.isEmpty()) {
         Q_EMIT errorOccurred(
@@ -147,6 +175,32 @@ void ExplorerController::openEntry(int row)
         return;
     }
     openMedia(url);
+}
+
+void ExplorerController::downloadEntry(int row)
+{
+    if (!m_files || !m_transfers || row < 0 || row >= m_files->rowCount())
+        return;
+    if (m_files->isDir(row)) {
+        Q_EMIT errorOccurred(QStringLiteral("Cannot download a folder"));
+        return;
+    }
+
+    const QUrl url = m_files->urlOf(row);
+    if (url.isEmpty()) {
+        Q_EMIT errorOccurred(
+            QStringLiteral("Cannot download: HTTP media server is not available "
+                           "(port 7401)."));
+        return;
+    }
+
+    const QString name = m_files->nameOf(row);
+    const QString dir = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
+    const QString transferId = m_transfers->downloadUrl(url, name, dir);
+    if (transferId.isEmpty())
+        return;
+    m_pendingDownloads.insert(transferId);
+    Q_EMIT downloadStarted(name);
 }
 
 void ExplorerController::goUp()

@@ -140,63 +140,15 @@ void CaptureSource::start()
 {
     if (m_running)
         return;
-
-    if (!m_videoSpec.location.isEmpty() && m_videoEnabled) {
-        m_videoThread = new QThread(this);
-        m_videoWorker = new CaptureWorker(true);
-        m_videoWorker->configure(m_videoSpec, HwPolicy::Auto);
-        m_videoWorker->moveToThread(m_videoThread);
-        connect(m_videoThread, &QThread::started, m_videoWorker, &CaptureWorker::start);
-        connect(m_videoThread, &QThread::finished, m_videoWorker, &QObject::deleteLater);
-        connect(m_videoWorker, &CaptureWorker::frameReady, this, [this](const FrameRef &frame) {
-            Q_EMIT videoFrame(frame);
-            if (m_preview && frame) {
-                FrameConverter converter;
-                const QVideoFrame vf = converter.toVideoFrame(frame.get());
-                if (vf.isValid())
-                    m_preview->setVideoFrame(vf);
-            }
-        });
-        connect(m_videoWorker, &CaptureWorker::failed, this, &CaptureSource::errorOccurred);
-        m_videoThread->start();
-    }
-
-    if (!m_audioSpec.location.isEmpty() && m_audioEnabled) {
-        m_audioThread = new QThread(this);
-        m_audioWorker = new CaptureWorker(false);
-        m_audioWorker->configure(m_audioSpec, HwPolicy::SoftwareOnly);
-        m_audioWorker->moveToThread(m_audioThread);
-        connect(m_audioThread, &QThread::started, m_audioWorker, &CaptureWorker::start);
-        connect(m_audioThread, &QThread::finished, m_audioWorker, &QObject::deleteLater);
-        connect(m_audioWorker, &CaptureWorker::frameReady, this, &CaptureSource::audioFrame);
-        connect(m_audioWorker, &CaptureWorker::failed, this, &CaptureSource::errorOccurred);
-        m_audioThread->start();
-    }
-
+    startVideo();
+    startAudio();
     m_running = true;
 }
 
 void CaptureSource::stop()
 {
-    if (m_videoWorker)
-        QMetaObject::invokeMethod(m_videoWorker, "stop", Qt::QueuedConnection);
-    if (m_audioWorker)
-        QMetaObject::invokeMethod(m_audioWorker, "stop", Qt::QueuedConnection);
-
-    if (m_videoThread) {
-        m_videoThread->quit();
-        m_videoThread->wait(3000);
-        m_videoThread->deleteLater();
-        m_videoThread = nullptr;
-        m_videoWorker = nullptr;
-    }
-    if (m_audioThread) {
-        m_audioThread->quit();
-        m_audioThread->wait(3000);
-        m_audioThread->deleteLater();
-        m_audioThread = nullptr;
-        m_audioWorker = nullptr;
-    }
+    stopVideo();
+    stopAudio();
     m_running = false;
 }
 
@@ -205,14 +157,52 @@ bool CaptureSource::isRunning() const
     return m_running;
 }
 
+bool CaptureSource::reopenVideo(const SourceSpec &video)
+{
+    m_videoSpec = video;
+    if (!m_running)
+        return !video.location.isEmpty();
+    stopVideo();
+    if (m_videoEnabled)
+        startVideo();
+    return true;
+}
+
+bool CaptureSource::reopenAudio(const SourceSpec &audio)
+{
+    m_audioSpec = audio;
+    if (!m_running)
+        return !audio.location.isEmpty();
+    stopAudio();
+    if (m_audioEnabled)
+        startAudio();
+    return true;
+}
+
 void CaptureSource::setVideoEnabled(bool enabled)
 {
+    if (m_videoEnabled == enabled)
+        return;
     m_videoEnabled = enabled;
+    if (!m_running)
+        return;
+    if (enabled)
+        startVideo();
+    else
+        stopVideo();
 }
 
 void CaptureSource::setAudioEnabled(bool enabled)
 {
+    if (m_audioEnabled == enabled)
+        return;
     m_audioEnabled = enabled;
+    if (!m_running)
+        return;
+    if (enabled)
+        startAudio();
+    else
+        stopAudio();
 }
 
 void CaptureSource::setPreviewSink(QVideoSink *sink)
@@ -229,12 +219,80 @@ void CaptureSource::setOutputSize(int width, int height, int fps)
         m_videoSpec.options.insert(QStringLiteral("framerate"), QString::number(fps));
 }
 
-void CaptureSource::videoLoop()
+SourceSpec CaptureSource::videoSpec() const
 {
+    return m_videoSpec;
 }
 
-void CaptureSource::audioLoop()
+SourceSpec CaptureSource::audioSpec() const
 {
+    return m_audioSpec;
+}
+
+void CaptureSource::stopVideo()
+{
+    if (m_videoWorker)
+        QMetaObject::invokeMethod(m_videoWorker, "stop", Qt::QueuedConnection);
+    if (m_videoThread) {
+        m_videoThread->quit();
+        m_videoThread->wait(3000);
+        m_videoThread->deleteLater();
+        m_videoThread = nullptr;
+        m_videoWorker = nullptr;
+    }
+}
+
+void CaptureSource::stopAudio()
+{
+    if (m_audioWorker)
+        QMetaObject::invokeMethod(m_audioWorker, "stop", Qt::QueuedConnection);
+    if (m_audioThread) {
+        m_audioThread->quit();
+        m_audioThread->wait(3000);
+        m_audioThread->deleteLater();
+        m_audioThread = nullptr;
+        m_audioWorker = nullptr;
+    }
+}
+
+void CaptureSource::startVideo()
+{
+    if (m_videoThread || m_videoSpec.location.isEmpty() || !m_videoEnabled)
+        return;
+
+    m_videoThread = new QThread(this);
+    m_videoWorker = new CaptureWorker(true);
+    m_videoWorker->configure(m_videoSpec, HwPolicy::Auto);
+    m_videoWorker->moveToThread(m_videoThread);
+    connect(m_videoThread, &QThread::started, m_videoWorker, &CaptureWorker::start);
+    connect(m_videoThread, &QThread::finished, m_videoWorker, &QObject::deleteLater);
+    connect(m_videoWorker, &CaptureWorker::frameReady, this, [this](const FrameRef &frame) {
+        Q_EMIT videoFrame(frame);
+        if (m_preview && frame) {
+            FrameConverter converter;
+            const QVideoFrame vf = converter.toVideoFrame(frame.get());
+            if (vf.isValid())
+                m_preview->setVideoFrame(vf);
+        }
+    });
+    connect(m_videoWorker, &CaptureWorker::failed, this, &CaptureSource::errorOccurred);
+    m_videoThread->start();
+}
+
+void CaptureSource::startAudio()
+{
+    if (m_audioThread || m_audioSpec.location.isEmpty() || !m_audioEnabled)
+        return;
+
+    m_audioThread = new QThread(this);
+    m_audioWorker = new CaptureWorker(false);
+    m_audioWorker->configure(m_audioSpec, HwPolicy::SoftwareOnly);
+    m_audioWorker->moveToThread(m_audioThread);
+    connect(m_audioThread, &QThread::started, m_audioWorker, &CaptureWorker::start);
+    connect(m_audioThread, &QThread::finished, m_audioWorker, &QObject::deleteLater);
+    connect(m_audioWorker, &CaptureWorker::frameReady, this, &CaptureSource::audioFrame);
+    connect(m_audioWorker, &CaptureWorker::failed, this, &CaptureSource::errorOccurred);
+    m_audioThread->start();
 }
 
 } // namespace qm

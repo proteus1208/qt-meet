@@ -80,7 +80,8 @@ void ClientApp::buildComponents()
     m_call = std::make_unique<CallController>(m_network.get(), m_session.get(), m_callEngine.get(),
                                               m_participants.get());
     m_explorer = std::make_unique<ExplorerController>(m_network.get(), m_session.get(),
-                                                      m_remoteFiles.get(), m_player.get());
+                                                      m_fileTransfer.get(), m_remoteFiles.get(),
+                                                      m_player.get());
 
     connect(m_session.get(), &SessionController::sessionChanged, this, [this] {
         if (!m_session->loggedIn() || !m_callEngine)

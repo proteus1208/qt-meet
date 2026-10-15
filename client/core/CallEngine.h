@@ -46,8 +46,18 @@ public:
 
     void setMicEnabled(bool enabled);
     void setCameraEnabled(bool enabled);
+    void setSpeakerEnabled(bool enabled);
+    bool speakerEnabled() const;
+
     void setCamera(const SourceSpec &camera);
     void setMicrophone(const SourceSpec &microphone);
+    void setSpeakerId(const QString &deviceId);
+    void setScreenSharing(bool enabled);
+    bool isScreenSharing() const;
+
+    SourceSpec camera() const;
+    SourceSpec microphone() const;
+    QString    speakerId() const;
 
     void setLocalPreview(QVideoSink *sink);
     void attachRemoteSink(UserId user, QVideoSink *sink);
@@ -57,6 +67,7 @@ Q_SIGNALS:
     void connectedChanged(bool connected);
     void remoteVideoActive(qm::UserId user, bool active);
     void audioLevel(qm::UserId user, float level);
+    void screenSharingChanged(bool sharing);
     void errorOccurred(const QString &message);
 
 private:
@@ -68,6 +79,8 @@ private:
     void onLocalSignal(const proto::RtcSignal &signal);
     void adaptToLoad();
     void mixAndPlayAudio();
+    void applySpeakerMute();
+    SourceSpec activeVideoSpec() const;
 
     NetworkClient                   *m_network = nullptr;
     ResourceMonitor                 *m_monitor = nullptr;
@@ -81,6 +94,12 @@ private:
     std::unique_ptr<AudioOutput>     m_audioOutput;
     std::unique_ptr<RtcPeer>         m_peer;
 
+    SourceSpec                       m_camera;
+    SourceSpec                       m_microphone;
+    SourceSpec                       m_screen;
+    QString                          m_speakerId;
+    bool                             m_screenSharing = false;
+
     int                              m_audioTrack = -1;
     int                              m_videoTrack = -1;
     int                              m_videoLowTrack = -1;
@@ -90,6 +109,7 @@ private:
     QPointer<QVideoSink>             m_localPreview;
     bool                             m_micEnabled = true;
     bool                             m_cameraEnabled = true;
+    bool                             m_speakerEnabled = true;
 };
 
 } // namespace qm

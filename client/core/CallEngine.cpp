@@ -2,6 +2,8 @@
 
 #include <cstring>
 
+#include <QAudioDevice>
+#include <QMediaDevices>
 #include <QVideoFrame>
 
 #include "common/EnvelopeFactory.h"
@@ -13,6 +15,7 @@
 #include "media/Decoder.h"
 #include "media/Encoder.h"
 #include "media/FrameConverter.h"
+#include "media/MediaSource.h"
 #include "rtc/AudioProcessor.h"
 #include "rtc/JitterBuffer.h"
 #include "rtc/RtcPeer.h"
@@ -43,6 +46,9 @@ CallEngine::CallEngine(NetworkClient *network, ResourceMonitor *monitor, const R
     , m_monitor(monitor)
     , m_config(config)
 {
+    m_camera = MediaSource::defaultCamera();
+    m_microphone = MediaSource::defaultMicrophone();
+    m_screen = MediaSource::defaultScreen();
 }
 
 CallEngine::~CallEngine()
@@ -59,6 +65,14 @@ bool CallEngine::startSession(const QString &sessionId, bool audio, bool video)
 {
     stopSession();
     m_sessionId = sessionId;
+    m_screenSharing = false;
+
+    if (m_camera.location.isEmpty())
+        m_camera = MediaSource::defaultCamera();
+    if (m_microphone.location.isEmpty())
+        m_microphone = MediaSource::defaultMicrophone();
+    if (m_screen.location.isEmpty())
+        m_screen = MediaSource::defaultScreen();
 
     m_peer = std::make_unique<RtcPeer>(m_config, RtcPeer::Role::Client, sessionId, this);
     connect(m_peer.get(), &RtcPeer::localSignal, this, &CallEngine::onLocalSignal);
@@ -98,21 +112,8 @@ bool CallEngine::startSession(const QString &sessionId, bool audio, bool video)
     }
 
     m_capture = std::make_unique<CaptureSource>(this);
-    SourceSpec cam;
-    SourceSpec mic;
-#if defined(Q_OS_LINUX)
-    cam.kind = SourceKind::Camera;
-    cam.format = QStringLiteral("v4l2");
-    cam.location = QStringLiteral("/dev/video0");
-    mic.kind = SourceKind::Microphone;
-    mic.format = QStringLiteral("pulse");
-    mic.location = QStringLiteral("default");
-#elif defined(Q_OS_WIN)
-    cam.kind = SourceKind::Camera;
-    cam.format = QStringLiteral("dshow");
-    mic.kind = SourceKind::Microphone;
-    mic.format = QStringLiteral("dshow");
-#endif
+    const SourceSpec cam = activeVideoSpec();
+    const SourceSpec mic = m_microphone;
     if (m_localPreview)
         m_capture->setPreviewSink(m_localPreview);
     m_capture->setVideoEnabled(video && m_cameraEnabled);
@@ -127,9 +128,21 @@ bool CallEngine::startSession(const QString &sessionId, bool audio, bool video)
     }
 
     m_audioOutput = std::make_unique<AudioOutput>(this);
-    m_audioOutput->open(48000, 1);
+    QAudioDevice outDev;
+    if (!m_speakerId.isEmpty()) {
+        const auto outputs = QMediaDevices::audioOutputs();
+        for (const QAudioDevice &dev : outputs) {
+            if (dev.id() == m_speakerId.toUtf8()) {
+                outDev = dev;
+                break;
+            }
+        }
+    }
+    m_audioOutput->open(48000, 1, outDev);
+    applySpeakerMute();
 
-    qCInfo(lcRtc) << "CallEngine session" << sessionId << "audio" << audio << "video" << video;
+    qCInfo(lcRtc) << "CallEngine session" << sessionId << "audio" << audio << "video" << video
+                   << "cam" << cam.displayName << "mic" << mic.displayName;
     return true;
 }
 
@@ -152,6 +165,10 @@ void CallEngine::stopSession()
     m_ssrcToUser.clear();
     m_audioTrack = m_videoTrack = m_videoLowTrack = -1;
     m_sessionId.clear();
+    if (m_screenSharing) {
+        m_screenSharing = false;
+        Q_EMIT screenSharingChanged(false);
+    }
 }
 
 bool CallEngine::isActive() const
@@ -187,14 +204,96 @@ void CallEngine::setCameraEnabled(bool enabled)
         m_capture->setVideoEnabled(enabled);
 }
 
+void CallEngine::setSpeakerEnabled(bool enabled)
+{
+    if (m_speakerEnabled == enabled)
+        return;
+    m_speakerEnabled = enabled;
+    applySpeakerMute();
+}
+
+bool CallEngine::speakerEnabled() const
+{
+    return m_speakerEnabled;
+}
+
 void CallEngine::setCamera(const SourceSpec &camera)
 {
-    Q_UNUSED(camera)
+    if (camera.location.isEmpty() && camera.format.isEmpty())
+        return;
+    m_camera = camera;
+    if (m_screenSharing)
+        return;
+    if (m_capture)
+        m_capture->reopenVideo(m_camera);
 }
 
 void CallEngine::setMicrophone(const SourceSpec &microphone)
 {
-    Q_UNUSED(microphone)
+    if (microphone.location.isEmpty() && microphone.format.isEmpty())
+        return;
+    m_microphone = microphone;
+    if (m_capture)
+        m_capture->reopenAudio(m_microphone);
+}
+
+void CallEngine::setSpeakerId(const QString &deviceId)
+{
+    if (m_speakerId == deviceId)
+        return;
+    m_speakerId = deviceId;
+    if (!m_audioOutput)
+        return;
+
+    QAudioDevice outDev;
+    if (!m_speakerId.isEmpty()) {
+        const auto outputs = QMediaDevices::audioOutputs();
+        for (const QAudioDevice &dev : outputs) {
+            if (dev.id() == m_speakerId.toUtf8()) {
+                outDev = dev;
+                break;
+            }
+        }
+    }
+    m_audioOutput->open(48000, 1, outDev);
+    applySpeakerMute();
+}
+
+void CallEngine::setScreenSharing(bool enabled)
+{
+    if (m_screenSharing == enabled)
+        return;
+    if (enabled && m_screen.location.isEmpty()) {
+        m_screen = MediaSource::defaultScreen();
+        if (m_screen.location.isEmpty()) {
+            Q_EMIT errorOccurred(QStringLiteral("Screen capture is not available on this platform"));
+            return;
+        }
+    }
+    m_screenSharing = enabled;
+    if (m_capture)
+        m_capture->reopenVideo(activeVideoSpec());
+    Q_EMIT screenSharingChanged(m_screenSharing);
+}
+
+bool CallEngine::isScreenSharing() const
+{
+    return m_screenSharing;
+}
+
+SourceSpec CallEngine::camera() const
+{
+    return m_camera;
+}
+
+SourceSpec CallEngine::microphone() const
+{
+    return m_microphone;
+}
+
+QString CallEngine::speakerId() const
+{
+    return m_speakerId;
 }
 
 void CallEngine::setLocalPreview(QVideoSink *sink)
@@ -212,6 +311,24 @@ void CallEngine::attachRemoteSink(UserId user, QVideoSink *sink)
 void CallEngine::detachRemoteSink(UserId user)
 {
     m_remoteSinks.remove(user);
+}
+
+SourceSpec CallEngine::activeVideoSpec() const
+{
+    return m_screenSharing ? m_screen : m_camera;
+}
+
+void CallEngine::applySpeakerMute()
+{
+    if (!m_audioOutput)
+        return;
+    if (m_speakerEnabled) {
+        m_audioOutput->setVolume(1.0);
+        m_audioOutput->resume();
+    } else {
+        m_audioOutput->setVolume(0.0);
+        m_audioOutput->suspend();
+    }
 }
 
 void CallEngine::onCapturedVideo(const FrameRef &frame)
@@ -246,7 +363,6 @@ void CallEngine::onRemoteRtp(int trackId, const QByteArray &packet)
     UserId publisher = 0;
     if (RtpUtil::parse(packet, info)) {
         publisher = m_ssrcToUser.value(info.ssrc, 0);
-        // Opus / audio payload types — skip video decode path.
         if (info.payloadType == 111 || info.payloadType == 96) {
             // 96 often used for dynamic video too; prefer kind from mapped track later.
         }
