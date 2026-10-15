@@ -16,13 +16,13 @@ A Qt 6 / QML client-server application for closed, offline networks (multiple ro
 | Layer | Choice |
 |---|---|
 | UI | QML (Qt Quick) with a C++ core |
-| Framework | Qt 6.8 LTS: quick, qml, multimedia, network, sql, httpserver, concurrent |
+| Framework | Qt 6.8 LTS: quick, qml, multimedia, network, sql, concurrent |
 | Build | qmake (`.pro` / `.pri`) |
 | Control protocol | Google protobuf over TLS (`QSslSocket`), length-prefixed frames |
 | Real-time media | libdatachannel (WebRTC), server-side SFU, no STUN/TURN needed |
 | Codecs / media | FFmpeg (LGPL build), Opus, H.264 |
 | Audio processing | webrtc-audio-processing (echo cancellation, noise suppression, gain) |
-| File streaming | `QHttpServer` with HTTP Range requests |
+| File streaming | Own HTTP server (`QTcpServer`) with HTTP Range requests |
 | Storage | SQLite, owned by a single storage thread |
 
 ## Architecture
@@ -84,7 +84,7 @@ Reference/              design plan (local only, git-ignored)
 
 ### Requirements
 
-- Qt 6.8+ with Qt Multimedia, Qt HttpServer, Qt Quick Controls
+- Qt 6.8+ with Qt Multimedia, Qt Quick Controls, Qt Network
 - C++17 compiler (MSVC 2022, MinGW 13, GCC 11+)
 - protobuf (protoc + library)
 - FFmpeg (LGPL build), libdatachannel, Opus, webrtc-audio-processing 1.x

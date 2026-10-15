@@ -5,21 +5,36 @@
 #include <QFileInfo>
 #include <QMimeDatabase>
 #include <QTcpServer>
+#include <QTcpSocket>
 #include <QUrl>
-#include <QUrlQuery>
-
-#ifdef QM_HAVE_HTTPSERVER
-#include <QHttpHeaders>
-#include <QHttpServer>
-#include <QHttpServerRequest>
-#include <QHttpServerResponse>
-#endif
 
 #include "common/Ids.h"
 #include "common/Logger.h"
 #include "storage/StorageManager.h"
 
 namespace qm {
+
+namespace {
+
+constexpr int kHeaderLimit = 64 * 1024;
+
+QByteArray statusReason(int status)
+{
+    switch (status) {
+    case 200: return QByteArrayLiteral("OK");
+    case 206: return QByteArrayLiteral("Partial Content");
+    case 400: return QByteArrayLiteral("Bad Request");
+    case 401: return QByteArrayLiteral("Unauthorized");
+    case 403: return QByteArrayLiteral("Forbidden");
+    case 404: return QByteArrayLiteral("Not Found");
+    case 405: return QByteArrayLiteral("Method Not Allowed");
+    case 416: return QByteArrayLiteral("Range Not Satisfiable");
+    case 500: return QByteArrayLiteral("Internal Server Error");
+    default:  return QByteArrayLiteral("Error");
+    }
+}
+
+} // namespace
 
 HttpMediaServer::HttpMediaServer(StorageManager *storage, QObject *parent)
     : QObject(parent)
@@ -34,21 +49,14 @@ HttpMediaServer::~HttpMediaServer()
 
 bool HttpMediaServer::start(const QHostAddress &address, quint16 port)
 {
-#ifdef QM_HAVE_HTTPSERVER
-    if (m_http)
+    if (m_tcp)
         return true;
 
-    m_http = new QHttpServer(this);
     m_tcp = new QTcpServer(this);
-    setupRoutes();
+    connect(m_tcp, &QTcpServer::newConnection, this, &HttpMediaServer::onNewConnection);
 
     if (!m_tcp->listen(address, port)) {
         qCWarning(lcApp) << "HTTP listen failed on" << port << m_tcp->errorString();
-        stop();
-        return false;
-    }
-    if (!m_http->bind(m_tcp)) {
-        qCWarning(lcApp) << "HTTP bind failed";
         stop();
         return false;
     }
@@ -59,37 +67,21 @@ bool HttpMediaServer::start(const QHostAddress &address, quint16 port)
     m_baseUrl = QStringLiteral("http://%1:%2").arg(host).arg(m_tcp->serverPort());
     qCInfo(lcApp) << "HTTP media server at" << m_baseUrl;
     return true;
-#else
-    Q_UNUSED(address)
-    Q_UNUSED(port)
-    qCWarning(lcApp) << "Qt HttpServer not available; /files downloads disabled";
-    return false;
-#endif
 }
 
 void HttpMediaServer::stop()
 {
-#ifdef QM_HAVE_HTTPSERVER
     if (m_tcp) {
         m_tcp->close();
         m_tcp->deleteLater();
         m_tcp = nullptr;
     }
-    if (m_http) {
-        m_http->deleteLater();
-        m_http = nullptr;
-    }
-#endif
     m_baseUrl.clear();
 }
 
 bool HttpMediaServer::isListening() const
 {
-#ifdef QM_HAVE_HTTPSERVER
     return m_tcp && m_tcp->isListening() && !m_baseUrl.isEmpty();
-#else
-    return false;
-#endif
 }
 
 void HttpMediaServer::setHostedRoot(const QString &absolutePath)
@@ -153,72 +145,200 @@ UserId HttpMediaServer::validateToken(const QString &token) const
     return m_tokens.value(token, 0);
 }
 
-void HttpMediaServer::setupRoutes()
+void HttpMediaServer::onNewConnection()
 {
-#ifdef QM_HAVE_HTTPSERVER
-    m_http->route(QStringLiteral("/files/<arg>"), QHttpServerRequest::Method::Get,
-                  [this](const QString &fileId, const QHttpServerRequest &request) {
-                      return serveBlob(fileId, request);
-                  });
-
-    // Nested paths via ?path=relative/file.mp4&t=<token> (arbitrary depth, sandbox-checked).
-    m_http->route(QStringLiteral("/hosted"), QHttpServerRequest::Method::Get,
-                  [this](const QHttpServerRequest &request) {
-                      const QString rel = QUrlQuery(request.url()).queryItemValue(QStringLiteral("path"));
-                      return serveHosted(rel, request);
-                  });
-#endif
+    while (m_tcp && m_tcp->hasPendingConnections()) {
+        QTcpSocket *socket = m_tcp->nextPendingConnection();
+        if (!socket)
+            continue;
+        socket->setParent(this);
+        connect(socket, &QTcpSocket::readyRead, this, [this, socket]() {
+            handleClient(socket);
+        });
+        connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
+        if (socket->bytesAvailable() > 0)
+            handleClient(socket);
+    }
 }
 
-#ifdef QM_HAVE_HTTPSERVER
-
-UserId HttpMediaServer::tokenFromRequest(const QHttpServerRequest &request) const
+void HttpMediaServer::handleClient(QTcpSocket *socket)
 {
-    const QUrlQuery query(request.url());
-    QString token = query.queryItemValue(QStringLiteral("t"));
+    if (!socket || socket->property("qm_handled").toBool())
+        return;
+
+    HttpRequest req;
+    if (!readRequest(socket, &req)) {
+        if (socket->property("qm_bad").toBool()) {
+            writeStatus(socket, 400, statusReason(400));
+            socket->disconnectFromHost();
+        }
+        return; // wait for more bytes
+    }
+    socket->setProperty("qm_handled", true);
+
+    if (req.method != QLatin1String("GET") && req.method != QLatin1String("HEAD")) {
+        writeStatus(socket, 405, statusReason(405));
+        socket->disconnectFromHost();
+        return;
+    }
+
+    if (req.path == QLatin1String("/hosted")) {
+        serveHosted(socket, req.query.queryItemValue(QStringLiteral("path")), req);
+    } else if (req.path.startsWith(QLatin1String("/files/"))) {
+        const QString fileId = req.path.mid(QStringLiteral("/files/").size());
+        serveBlob(socket, QUrl::fromPercentEncoding(fileId.toUtf8()), req);
+    } else {
+        writeStatus(socket, 404, statusReason(404));
+    }
+    socket->disconnectFromHost();
+}
+
+bool HttpMediaServer::readRequest(QTcpSocket *socket, HttpRequest *out)
+{
+    const QByteArray buf = socket->peek(kHeaderLimit + 4);
+    const int sep = buf.indexOf("\r\n\r\n");
+    if (sep < 0) {
+        if (buf.size() >= kHeaderLimit)
+            socket->setProperty("qm_bad", true);
+        return false;
+    }
+
+    const QByteArray headerBlock = socket->read(sep + 4);
+    const QList<QByteArray> lines = headerBlock.split('\n');
+    if (lines.isEmpty()) {
+        socket->setProperty("qm_bad", true);
+        return false;
+    }
+
+    QByteArray requestLine = lines.first().trimmed();
+    if (requestLine.endsWith('\r'))
+        requestLine.chop(1);
+    const QList<QByteArray> parts = requestLine.split(' ');
+    if (parts.size() < 2) {
+        socket->setProperty("qm_bad", true);
+        return false;
+    }
+
+    out->method = QString::fromLatin1(parts[0]).toUpper();
+    const QByteArray target = parts[1];
+    const int qmark = target.indexOf('?');
+    const QByteArray pathBytes = qmark >= 0 ? target.left(qmark) : target;
+    const QByteArray queryBytes = qmark >= 0 ? target.mid(qmark + 1) : QByteArray();
+    out->path = QString::fromUtf8(QByteArray::fromPercentEncoding(pathBytes));
+    out->query = QUrlQuery(QString::fromUtf8(queryBytes));
+    out->headers.clear();
+
+    for (int i = 1; i < lines.size(); ++i) {
+        QByteArray line = lines[i];
+        if (line.endsWith('\r'))
+            line.chop(1);
+        if (line.isEmpty())
+            break;
+        const int colon = line.indexOf(':');
+        if (colon <= 0)
+            continue;
+        const QByteArray key = line.left(colon).trimmed().toLower();
+        const QByteArray value = line.mid(colon + 1).trimmed();
+        out->headers.insert(key, value);
+    }
+    return true;
+}
+
+void HttpMediaServer::writeStatus(QTcpSocket *socket, int status, const QByteArray &reason)
+{
+    writeResponse(socket, status, reason, QByteArrayLiteral("text/plain"), reason);
+}
+
+void HttpMediaServer::writeResponse(QTcpSocket *socket, int status, const QByteArray &reason,
+                                    const QByteArray &contentType, const QByteArray &body,
+                                    const QList<QPair<QByteArray, QByteArray>> &extraHeaders)
+{
+    if (!socket)
+        return;
+    QByteArray msg;
+    msg += "HTTP/1.1 ";
+    msg += QByteArray::number(status);
+    msg += ' ';
+    msg += reason;
+    msg += "\r\n";
+    msg += "Connection: close\r\n";
+    msg += "Content-Type: ";
+    msg += contentType.isEmpty() ? QByteArrayLiteral("application/octet-stream") : contentType;
+    msg += "\r\n";
+    msg += "Content-Length: ";
+    msg += QByteArray::number(body.size());
+    msg += "\r\n";
+    for (const auto &h : extraHeaders) {
+        msg += h.first;
+        msg += ": ";
+        msg += h.second;
+        msg += "\r\n";
+    }
+    msg += "\r\n";
+    socket->write(msg);
+    if (!body.isEmpty())
+        socket->write(body);
+    socket->flush();
+}
+
+UserId HttpMediaServer::tokenFromRequest(const HttpRequest &request) const
+{
+    QString token = request.query.queryItemValue(QStringLiteral("t"));
     if (token.isEmpty()) {
-        const QByteArray auth = request.value(QByteArrayLiteral("Authorization"));
+        const QByteArray auth = request.headers.value(QByteArrayLiteral("authorization"));
         if (auth.startsWith("Bearer "))
             token = QString::fromUtf8(auth.mid(7));
     }
     return validateToken(token);
 }
 
-QHttpServerResponse HttpMediaServer::serveHosted(const QString &relativePath,
-                                                 const QHttpServerRequest &request)
+void HttpMediaServer::serveHosted(QTcpSocket *socket, const QString &relativePath,
+                                  const HttpRequest &request)
 {
-    if (tokenFromRequest(request) == 0)
-        return QHttpServerResponse(QHttpServerResponse::StatusCode::Unauthorized);
+    if (tokenFromRequest(request) == 0) {
+        writeStatus(socket, 401, statusReason(401));
+        return;
+    }
 
     QString root;
     {
         QReadLocker locker(&m_lock);
         root = m_hostedRoot;
     }
-    if (root.isEmpty())
-        return QHttpServerResponse(QHttpServerResponse::StatusCode::NotFound);
+    if (root.isEmpty()) {
+        writeStatus(socket, 404, statusReason(404));
+        return;
+    }
 
     QString cleaned = relativePath;
     cleaned.replace(QLatin1Char('\\'), QLatin1Char('/'));
     while (cleaned.startsWith(QLatin1Char('/')))
         cleaned.remove(0, 1);
-    if (cleaned.contains(QStringLiteral("..")))
-        return QHttpServerResponse(QHttpServerResponse::StatusCode::Forbidden);
+    if (cleaned.contains(QStringLiteral(".."))) {
+        writeStatus(socket, 403, statusReason(403));
+        return;
+    }
 
     const QStringList parts = cleaned.split(QLatin1Char('/'), Qt::SkipEmptyParts);
     for (const QString &part : parts) {
-        if (part == QLatin1String(".") || part == QLatin1String(".."))
-            return QHttpServerResponse(QHttpServerResponse::StatusCode::Forbidden);
+        if (part == QLatin1String(".") || part == QLatin1String("..")) {
+            writeStatus(socket, 403, statusReason(403));
+            return;
+        }
     }
     cleaned = parts.join(QLatin1Char('/'));
-    if (cleaned.isEmpty())
-        return QHttpServerResponse(QHttpServerResponse::StatusCode::NotFound);
+    if (cleaned.isEmpty()) {
+        writeStatus(socket, 404, statusReason(404));
+        return;
+    }
 
     const QString rootAbs = QFileInfo(root).absoluteFilePath();
     const QString absolute = QDir(rootAbs).filePath(cleaned);
     const QFileInfo info(absolute);
-    if (!info.exists() || !info.isFile())
-        return QHttpServerResponse(QHttpServerResponse::StatusCode::NotFound);
+    if (!info.exists() || !info.isFile()) {
+        writeStatus(socket, 404, statusReason(404));
+        return;
+    }
 
     const QString cand = info.absoluteFilePath();
 #ifdef Q_OS_WIN
@@ -227,71 +347,109 @@ QHttpServerResponse HttpMediaServer::serveHosted(const QString &relativePath,
     const Qt::CaseSensitivity cs = Qt::CaseSensitive;
 #endif
     const QString prefix = rootAbs.endsWith(QLatin1Char('/')) ? rootAbs : rootAbs + QLatin1Char('/');
-    if (!cand.startsWith(prefix, cs) && cand.compare(rootAbs, cs) != 0)
-        return QHttpServerResponse(QHttpServerResponse::StatusCode::Forbidden);
+    if (!cand.startsWith(prefix, cs) && cand.compare(rootAbs, cs) != 0) {
+        writeStatus(socket, 403, statusReason(403));
+        return;
+    }
 
-    return serveFileRange(cand, request);
+    serveFileRange(socket, cand, request);
 }
 
-QHttpServerResponse HttpMediaServer::serveBlob(const QString &fileId, const QHttpServerRequest &request)
+void HttpMediaServer::serveBlob(QTcpSocket *socket, const QString &fileId, const HttpRequest &request)
 {
-    if (tokenFromRequest(request) == 0)
-        return QHttpServerResponse(QHttpServerResponse::StatusCode::Unauthorized);
-    if (!m_storage || fileId.isEmpty())
-        return QHttpServerResponse(QHttpServerResponse::StatusCode::NotFound);
+    if (tokenFromRequest(request) == 0) {
+        writeStatus(socket, 401, statusReason(401));
+        return;
+    }
+    if (!m_storage || fileId.isEmpty()) {
+        writeStatus(socket, 404, statusReason(404));
+        return;
+    }
 
     const auto file = m_storage->fileById(fileId).result();
-    if (!file || !file->complete || file->blobPath.isEmpty())
-        return QHttpServerResponse(QHttpServerResponse::StatusCode::NotFound);
+    if (!file || !file->complete || file->blobPath.isEmpty()) {
+        writeStatus(socket, 404, statusReason(404));
+        return;
+    }
 
-    return serveFileRange(file->blobPath, request);
+    serveFileRange(socket, file->blobPath, request);
 }
 
-QHttpServerResponse HttpMediaServer::serveFileRange(const QString &absolutePath,
-                                                    const QHttpServerRequest &request)
+void HttpMediaServer::serveFileRange(QTcpSocket *socket, const QString &absolutePath,
+                                     const HttpRequest &request)
 {
     QFile file(absolutePath);
-    if (!file.open(QIODevice::ReadOnly))
-        return QHttpServerResponse(QHttpServerResponse::StatusCode::NotFound);
+    if (!file.open(QIODevice::ReadOnly)) {
+        writeStatus(socket, 404, statusReason(404));
+        return;
+    }
 
     const qint64 size = file.size();
-    const QString mime = QMimeDatabase().mimeTypeForFile(absolutePath).name();
+    const QByteArray mime = QMimeDatabase().mimeTypeForFile(absolutePath).name().toUtf8();
     if (size <= 0) {
-        return QHttpServerResponse(mime.toUtf8(), QByteArray(),
-                                   QHttpServerResponse::StatusCode::Ok);
+        writeResponse(socket, 200, statusReason(200), mime, QByteArray());
+        return;
     }
 
     qint64 from = 0;
     qint64 to = size - 1;
-    const QByteArray rangeHeader = request.value(QByteArrayLiteral("Range"));
+    const QByteArray rangeHeader = request.headers.value(QByteArrayLiteral("range"));
     const bool partial = parseRange(rangeHeader, size, from, to);
 
     if (partial && (from < 0 || to < from || to >= size)) {
-        return QHttpServerResponse(QHttpServerResponse::StatusCode::RequestRangeNotSatisfiable);
+        QList<QPair<QByteArray, QByteArray>> headers;
+        headers.append({QByteArrayLiteral("Content-Range"),
+                        QByteArrayLiteral("bytes */") + QByteArray::number(size)});
+        writeResponse(socket, 416, statusReason(416), QByteArrayLiteral("text/plain"),
+                      statusReason(416), headers);
+        return;
     }
 
-    if (!file.seek(from))
-        return QHttpServerResponse(QHttpServerResponse::StatusCode::InternalServerError);
+    if (!file.seek(from)) {
+        writeStatus(socket, 500, statusReason(500));
+        return;
+    }
 
     const qint64 length = to - from + 1;
-    const QByteArray data = file.read(length);
+    const QByteArray data = (request.method == QLatin1String("HEAD"))
+                                ? QByteArray()
+                                : file.read(length);
 
-    QHttpHeaders headers;
-    headers.append(QByteArrayLiteral("Accept-Ranges"), QByteArrayLiteral("bytes"));
-    headers.append(QByteArrayLiteral("Content-Length"), QByteArray::number(data.size()));
+    QList<QPair<QByteArray, QByteArray>> headers;
+    headers.append({QByteArrayLiteral("Accept-Ranges"), QByteArrayLiteral("bytes")});
     if (partial) {
-        headers.append(QByteArrayLiteral("Content-Range"),
-                       QByteArrayLiteral("bytes ") + QByteArray::number(from) + '-'
-                           + QByteArray::number(to) + '/' + QByteArray::number(size));
+        headers.append({QByteArrayLiteral("Content-Range"),
+                        QByteArrayLiteral("bytes ") + QByteArray::number(from) + '-'
+                            + QByteArray::number(to) + '/' + QByteArray::number(size)});
     }
 
-    return QHttpServerResponse(
-        mime.toUtf8(), data, headers,
-        partial ? QHttpServerResponse::StatusCode::PartialContent
-                : QHttpServerResponse::StatusCode::Ok);
+    // For HEAD, advertise the real body length even though we send no body.
+    QByteArray msg;
+    const int status = partial ? 206 : 200;
+    msg += "HTTP/1.1 ";
+    msg += QByteArray::number(status);
+    msg += ' ';
+    msg += statusReason(status);
+    msg += "\r\n";
+    msg += "Connection: close\r\n";
+    msg += "Content-Type: ";
+    msg += mime.isEmpty() ? QByteArrayLiteral("application/octet-stream") : mime;
+    msg += "\r\n";
+    msg += "Content-Length: ";
+    msg += QByteArray::number(request.method == QLatin1String("HEAD") ? length : data.size());
+    msg += "\r\n";
+    for (const auto &h : headers) {
+        msg += h.first;
+        msg += ": ";
+        msg += h.second;
+        msg += "\r\n";
+    }
+    msg += "\r\n";
+    socket->write(msg);
+    if (!data.isEmpty())
+        socket->write(data);
+    socket->flush();
 }
-
-#endif // QM_HAVE_HTTPSERVER
 
 bool HttpMediaServer::parseRange(const QByteArray &header, qint64 size, qint64 &from, qint64 &to)
 {
@@ -310,7 +468,6 @@ bool HttpMediaServer::parseRange(const QByteArray &header, qint64 size, qint64 &
     const QByteArray end = spec.mid(dash + 1);
 
     if (start.isEmpty()) {
-        // suffix: bytes=-N
         bool ok = false;
         const qint64 suffix = end.toLongLong(&ok);
         if (!ok || suffix <= 0)

@@ -6,13 +6,6 @@ TARGET   = QtMeetServer
 DESTDIR  = $$QM_BIN_DIR
 QT      += core gui network sql concurrent quick qml
 
-qtHaveModule(httpserver) {
-    QT      += httpserver
-    DEFINES += QM_HAVE_HTTPSERVER
-} else {
-    warning("Qt HttpServer module not installed; hosted-folder streaming is disabled (install 'Qt HTTP Server' via Qt Maintenance Tool)")
-}
-
 qmUseLib(qmrtc)
 qmUseLib(qmcommon)
 qmUseLib(qmproto)

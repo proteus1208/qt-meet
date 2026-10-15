@@ -5,22 +5,23 @@
 #include <QObject>
 #include <QReadWriteLock>
 #include <QString>
+#include <QUrlQuery>
 
 #include "common/Ids.h"
 
-class QHttpServer;
-class QHttpServerRequest;
-class QHttpServerResponse;
 class QTcpServer;
+class QTcpSocket;
 
 namespace qm {
 
 class StorageManager;
 
 /// Aim: HTTP endpoint for media bytes, with Range support so players can seek:
-///   GET /hosted/<relative path>?t=<token>   files from the hosted folder
+///   GET /hosted?path=<relative>&t=<token>   files from the hosted folder
 ///   GET /files/<fileId>?t=<token>           chat attachments from the blob store
 /// Tokens are issued at login (AuthService) and checked on every request.
+///
+/// Implemented with QTcpServer (no Qt HttpServer module).
 class HttpMediaServer : public QObject
 {
     Q_OBJECT
@@ -37,25 +38,38 @@ public:
     QString hostedRoot() const;
     void    setBlobDir(const QString &absolutePath);
     void    setStorage(StorageManager *storage);
-    QString baseUrl() const;                         // http://<server-ip>:<port>, empty if not listening
+    QString baseUrl() const; // http://<server-ip>:<port>, empty if not listening
 
     QString issueToken(UserId user);
     void    revokeToken(const QString &token);
     void    revokeUser(UserId user);
     UserId  validateToken(const QString &token) const;
 
+private slots:
+    void onNewConnection();
+
 private:
-    void setupRoutes();
-#ifdef QM_HAVE_HTTPSERVER
-    QHttpServerResponse serveHosted(const QString &relativePath, const QHttpServerRequest &request);
-    QHttpServerResponse serveBlob(const QString &fileId, const QHttpServerRequest &request);
-    QHttpServerResponse serveFileRange(const QString &absolutePath, const QHttpServerRequest &request);
-    UserId tokenFromRequest(const QHttpServerRequest &request) const;
-#endif
+    struct HttpRequest {
+        QString method;
+        QString path;
+        QUrlQuery query;
+        QHash<QByteArray, QByteArray> headers; // lower-case keys
+    };
+
+    void handleClient(QTcpSocket *socket);
+    bool readRequest(QTcpSocket *socket, HttpRequest *out);
+    void writeResponse(QTcpSocket *socket, int status, const QByteArray &reason,
+                       const QByteArray &contentType, const QByteArray &body,
+                       const QList<QPair<QByteArray, QByteArray>> &extraHeaders = {});
+    void writeStatus(QTcpSocket *socket, int status, const QByteArray &reason);
+
+    void serveHosted(QTcpSocket *socket, const QString &relativePath, const HttpRequest &request);
+    void serveBlob(QTcpSocket *socket, const QString &fileId, const HttpRequest &request);
+    void serveFileRange(QTcpSocket *socket, const QString &absolutePath, const HttpRequest &request);
+    UserId tokenFromRequest(const HttpRequest &request) const;
 
     static bool parseRange(const QByteArray &header, qint64 size, qint64 &from, qint64 &to);
 
-    QHttpServer            *m_http = nullptr;
     QTcpServer             *m_tcp = nullptr;
     StorageManager         *m_storage = nullptr;
     mutable QReadWriteLock  m_lock;
