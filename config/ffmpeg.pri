@@ -17,10 +17,11 @@ isEmpty(FFMPEG_DIR) {
         for(lib, FFMPEG_LIBS): LIBS += -l$$lib
 
         # Copy the FFmpeg DLLs next to the executable so it runs from Qt Creator.
+        # Best-effort: a locked/missing DLL must not turn into opaque "Makefile Error 1".
         win32:!isEmpty(DESTDIR) {
             FFMPEG_DLLS = $$files($$FFMPEG_DIR/bin/*.dll)
             for(dll, FFMPEG_DLLS) {
-                QMAKE_POST_LINK += $$QMAKE_COPY $$shell_quote($$shell_path($$dll)) $$shell_quote($$shell_path($$DESTDIR)) $$escape_expand(\\n\\t)
+                QMAKE_POST_LINK += $$quote(cmd /c "copy /y $$shell_quote($$shell_path($$dll)) $$shell_quote($$shell_path($$DESTDIR)\\) >nul & exit /b 0") $$escape_expand(\\n\\t)
             }
         }
     }
