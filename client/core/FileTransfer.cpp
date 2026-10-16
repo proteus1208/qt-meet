@@ -51,7 +51,7 @@ FileTransfer::FileTransfer(NetworkClient *network, TransferModel *model, QObject
     , m_model(model)
     , m_http(new QNetworkAccessManager(this))
 {
-    connect(m_network, &NetworkClient::event, this, &FileTransfer::onEvent);
+    connect(m_network, &NetworkClient::envelopeReceived, this, &FileTransfer::onEvent);
 }
 
 FileTransfer::~FileTransfer()

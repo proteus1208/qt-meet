@@ -132,7 +132,7 @@ void NetworkClient::onWorkerFrame(const proto::Envelope &envelope)
         }
         return;
     }
-    Q_EMIT event(envelope);
+    Q_EMIT envelopeReceived(envelope);
 }
 
 void NetworkClient::failPending(const QString &reason)

@@ -10,6 +10,7 @@
 #include "media/Scaler.h"
 
 extern "C" {
+#include <libavcodec/avcodec.h>
 #include <libavutil/frame.h>
 #include <libavutil/pixfmt.h>
 #include <libavutil/samplefmt.h>

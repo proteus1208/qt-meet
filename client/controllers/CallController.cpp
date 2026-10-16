@@ -23,7 +23,7 @@ CallController::CallController(NetworkClient *network, SessionController *sessio
     , m_engine(engine)
     , m_participants(participants)
 {
-    connect(m_network, &NetworkClient::event, this, &CallController::onEvent);
+    connect(m_network, &NetworkClient::envelopeReceived, this, &CallController::onEvent);
     connect(m_session, &SessionController::sessionChanged, this, [this] {
         if (!m_session->loggedIn())
             hangup();
@@ -936,6 +936,8 @@ void CallController::onParticipantEvent(const proto::ParticipantEvt &event)
         m_participants->remove(event.participant().user().id());
         if (m_engine)
             m_engine->detachRemoteSink(event.participant().user().id());
+        break;
+    default:
         break;
     }
 }

@@ -41,7 +41,7 @@ public:
     State state() const;
 
 Q_SIGNALS:
-    void event(const qm::proto::Envelope &envelope);
+    void envelopeReceived(const qm::proto::Envelope &envelope);
     void stateChanged(qm::NetworkClient::State state);
     void errorOccurred(const QString &message);
 

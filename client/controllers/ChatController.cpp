@@ -35,7 +35,7 @@ ChatController::ChatController(NetworkClient *network, SessionController *sessio
     m_searchDebounce->setInterval(250);
     connect(m_searchDebounce, &QTimer::timeout, this, &ChatController::sendSearch);
 
-    connect(m_network, &NetworkClient::event, this, &ChatController::onEvent);
+    connect(m_network, &NetworkClient::envelopeReceived, this, &ChatController::onEvent);
     connect(m_messages, &ChatModel::hasMoreChanged, this, &ChatController::hasMoreMessagesChanged);
     connect(m_session, &SessionController::sessionChanged, this, [this] {
         if (m_session->loggedIn()) {
