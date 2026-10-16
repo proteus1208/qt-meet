@@ -3,14 +3,15 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import QtMultimedia
 import QtMeet
+import "theme"
 
 Page {
     id: page
     title: qsTr("Player")
 
+    readonly property Theme theme: Theme {}
     readonly property bool isPlaying: player.playbackState === MediaPlayer.PlayingState
 
-    // Qt Multimedia player — correct stack for file/HTTP playback (not custom FFmpeg→QVideoSink).
     MediaPlayer {
         id: player
         source: Explorer.mediaUrl
@@ -36,8 +37,11 @@ Page {
     }
 
     header: ToolBar {
+        background: Rectangle { color: theme.surface }
         RowLayout {
             anchors.fill: parent
+            anchors.leftMargin: 8
+            anchors.rightMargin: 12
             ToolButton {
                 text: qsTr("Back")
                 onClicked: {
@@ -46,21 +50,33 @@ Page {
                     page.StackView.view.pop()
                 }
             }
-            Label {
+            ColumnLayout {
                 Layout.fillWidth: true
-                text: Explorer.mediaUrl.toString()
-                elide: Text.ElideMiddle
-            }
-            Label {
-                text: {
-                    switch (player.mediaStatus) {
-                    case MediaPlayer.LoadingMedia: return qsTr("Loading…")
-                    case MediaPlayer.BufferingMedia: return qsTr("Buffering…")
-                    case MediaPlayer.InvalidMedia: return qsTr("Invalid")
-                    default: return page.isPlaying ? qsTr("Playing") : qsTr("Paused")
+                spacing: 2
+                Label {
+                    Layout.fillWidth: true
+                    text: {
+                        const u = Explorer.mediaUrl
+                        const name = u.fileName || u.toString()
+                        return name.length ? name : qsTr("Player")
                     }
+                    elide: Text.ElideMiddle
+                    color: theme.text
+                    font.bold: true
                 }
-                opacity: 0.8
+                Label {
+                    text: {
+                        switch (player.mediaStatus) {
+                        case MediaPlayer.LoadingMedia: return qsTr("Loading…")
+                        case MediaPlayer.BufferingMedia: return qsTr("Buffering…")
+                        case MediaPlayer.InvalidMedia: return qsTr("Invalid media")
+                        case MediaPlayer.EndOfMedia: return qsTr("Ended")
+                        default: return page.isPlaying ? qsTr("Playing") : qsTr("Paused")
+                        }
+                    }
+                    color: theme.textMuted
+                    font.pixelSize: 12
+                }
             }
         }
     }
@@ -73,7 +89,7 @@ Page {
     VideoOutput {
         id: videoOutput
         anchors.fill: parent
-        anchors.bottomMargin: controls.height
+        anchors.bottomMargin: controls.height + 8
         fillMode: VideoOutput.PreserveAspectFit
     }
 
@@ -91,9 +107,8 @@ Page {
         anchors.centerIn: parent
         visible: errorLabel.text.length === 0
                  && player.mediaStatus === MediaPlayer.LoadingMedia
-        color: "white"
+        color: theme.textMuted
         text: qsTr("Loading…")
-        opacity: 0.7
     }
 
     function formatMs(ms) {
@@ -103,44 +118,55 @@ Page {
         return m + ":" + String(r).padStart(2, "0")
     }
 
-    RowLayout {
+    Rectangle {
         id: controls
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.bottom: parent.bottom
-        anchors.margins: 8
-        spacing: 8
+        height: controlsRow.implicitHeight + 20
+        color: "#E6141824"
 
-        Button {
-            text: page.isPlaying ? qsTr("Pause") : qsTr("Play")
-            onClicked: page.isPlaying ? player.pause() : player.play()
-        }
-        Button {
-            text: qsTr("Stop")
-            onClicked: player.stop()
-        }
-        Label {
-            text: page.formatMs(player.position)
-            color: "white"
-        }
-        Slider {
-            Layout.fillWidth: true
-            from: 0
-            to: Math.max(1, player.duration)
-            value: player.position
-            enabled: player.seekable
-            onMoved: player.position = value
-        }
-        Label {
-            text: page.formatMs(player.duration)
-            color: "white"
-        }
-        Slider {
-            id: volumeSlider
-            Layout.preferredWidth: 100
-            from: 0
-            to: 1
-            value: 1
+        RowLayout {
+            id: controlsRow
+            anchors.fill: parent
+            anchors.margins: 10
+            spacing: 10
+
+            Button {
+                text: page.isPlaying ? qsTr("Pause") : qsTr("Play")
+                onClicked: page.isPlaying ? player.pause() : player.play()
+            }
+            Button {
+                text: qsTr("Stop")
+                onClicked: player.stop()
+            }
+            Label {
+                text: page.formatMs(player.position)
+                color: theme.text
+            }
+            Slider {
+                Layout.fillWidth: true
+                from: 0
+                to: Math.max(1, player.duration)
+                value: player.position
+                enabled: player.seekable
+                onMoved: player.position = value
+            }
+            Label {
+                text: page.formatMs(player.duration)
+                color: theme.textMuted
+            }
+            Label {
+                text: qsTr("Vol")
+                color: theme.textMuted
+            }
+            Slider {
+                id: volumeSlider
+                Layout.preferredWidth: 110
+                from: 0
+                to: 1
+                value: 1
+            }
         }
     }
 

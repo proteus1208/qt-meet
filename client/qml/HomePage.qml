@@ -9,7 +9,7 @@ Page {
     id: page
 
     readonly property Theme theme: Theme {}
-    property int currentNav: 0 // 0 chats, 1 people, 2 meetings, 3 files
+    property int currentNav: 0 // 0 chats, 1 people, 2 meetings, 3 files, 4 live
     readonly property bool peerMode: Chat.activePeerId !== 0
 
     background: Rectangle { color: page.theme.bg }
@@ -169,7 +169,8 @@ Page {
                         { icon: "💬", label: qsTr("Chats") },
                         { icon: "👥", label: qsTr("People") },
                         { icon: "📹", label: qsTr("Meetings") },
-                        { icon: "📁", label: qsTr("Files") }
+                        { icon: "📁", label: qsTr("Files") },
+                        { icon: "📺", label: qsTr("Live") }
                     ]
 
                     delegate: Item {
@@ -209,6 +210,8 @@ Page {
                                     page.currentNav = index
                                     if (index === 3)
                                         page.StackView.view.push(Qt.resolvedUrl("ExplorerPage.qml"))
+                                    else if (index === 4)
+                                        page.StackView.view.push(Qt.resolvedUrl("ChannelsPage.qml"))
                                 }
                             }
                         }
@@ -927,7 +930,7 @@ Page {
                 // Meetings
                 Rectangle {
                     Layout.fillWidth: true
-                    Layout.preferredHeight: 200
+                    Layout.preferredHeight: 280
                     radius: page.theme.radius
                     color: page.theme.surfaceAlt
                     border.color: page.theme.border
@@ -956,6 +959,26 @@ Page {
                         }
 
                         Label {
+                            text: qsTr("Bandwidth")
+                            color: page.theme.text
+                            font.pixelSize: 12
+                            font.bold: true
+                        }
+                        ComboBox {
+                            Layout.fillWidth: true
+                            model: Call.bandwidthLabels
+                            currentIndex: Call.bandwidthIndex
+                            onActivated: Call.bandwidthIndex = index
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            wrapMode: Text.WordWrap
+                            color: page.theme.textDim
+                            font.pixelSize: 11
+                            text: qsTr("Server delivery: %1").arg(Session.transportModeLabel)
+                        }
+
+                        Label {
                             id: meetingErrorLabel
                             Layout.fillWidth: true
                             wrapMode: Text.WordWrap
@@ -981,6 +1004,18 @@ Page {
                             text: qsTr("Open meeting")
                             visible: Call.state === 4
                             onClicked: page.StackView.view.push(Qt.resolvedUrl("MeetingView.qml"))
+                        }
+                        Button {
+                            Layout.fillWidth: true
+                            text: qsTr("Live channels")
+                            enabled: Session.loggedIn && Call.state === 0
+                            onClicked: page.StackView.view.push(Qt.resolvedUrl("ChannelsPage.qml"))
+                        }
+                        Button {
+                            Layout.fillWidth: true
+                            text: qsTr("Open live")
+                            visible: Call.state === 5
+                            onClicked: page.StackView.view.push(Qt.resolvedUrl("ChannelWatchView.qml"))
                         }
                     }
                 }

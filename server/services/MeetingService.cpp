@@ -118,6 +118,7 @@ void MeetingService::onCallInvite(const RequestContext &context, const proto::En
     out->set_from_user_id(context.user);
     out->set_to_user_id(to);
     out->set_kind(inv.kind());
+    out->set_from_display_name(m_sessions->displayName(context.user).toStdString());
     m_sessions->sendTo(to, forward);
 
     proto::Envelope ack = EnvelopeFactory::reply(envelope);

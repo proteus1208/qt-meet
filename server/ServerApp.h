@@ -10,6 +10,7 @@
 namespace qm {
 
 class AuthService;
+class ChannelService;
 class ChatService;
 class ConnectionManager;
 class Dispatcher;
@@ -40,13 +41,20 @@ public:
     QString hostedFolder() const;
     bool    httpMediaListening() const;
 
+    void          setTransportMode(TransportMode mode);
+    TransportMode transportMode() const;
+    void          setDefaultChannelBitrateKbps(int kbps);
+    int           defaultChannelBitrateKbps() const;
+
     SessionRegistry   *sessions() const;
     ConnectionManager *connections() const;
+    ChannelService    *channels() const;
     const ServerSettings &settings() const;
 
 Q_SIGNALS:
     void runningChanged();
     void hostedFolderChanged();
+    void transportModeChanged();
     void errorOccurred(const QString &message);
 
 private:
@@ -71,6 +79,7 @@ private:
     std::unique_ptr<FileService>       m_files;
     std::unique_ptr<MeetingService>    m_meetings;
     std::unique_ptr<FolderService>     m_folders;
+    std::unique_ptr<ChannelService>    m_channels;
 };
 
 } // namespace qm

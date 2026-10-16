@@ -24,6 +24,8 @@ public:
     bool requiresAuth() const override { return false; }
     void handle(const RequestContext &context, const proto::Envelope &envelope) override;
 
+    void setSettings(const ServerSettings &settings);
+
     static QByteArray hashPassword(const QString &password, const QByteArray &salt);
     static QByteArray newSalt();
 

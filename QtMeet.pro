@@ -11,7 +11,7 @@ SUBDIRS = \
 common.depends = proto
 media.depends  = common
 rtc.depends    = common
-server.depends = proto common rtc
+server.depends = proto common media rtc
 client.depends = proto common media rtc
 
 OTHER_FILES += \

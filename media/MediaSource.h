@@ -32,10 +32,13 @@ public:
     static QList<SourceSpec> enumerateCameras();
     static QList<SourceSpec> enumerateMicrophones();
     static QList<SourceSpec> enumerateScreens();
+    /// Loopback / "what you hear" style devices for IPTV system-audio capture.
+    static QList<SourceSpec> enumerateSystemAudio();
     /// Build a default camera / mic pair for the current platform (first device or defaults).
     static SourceSpec defaultCamera();
     static SourceSpec defaultMicrophone();
     static SourceSpec defaultScreen();
+    static SourceSpec defaultSystemAudio();
 
 private:
     static int interruptCallback(void *opaque);

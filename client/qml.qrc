@@ -8,6 +8,8 @@
         <file>qml/MeetingView.qml</file>
         <file>qml/JoinMeetingDialog.qml</file>
         <file>qml/ExplorerPage.qml</file>
+        <file>qml/ChannelsPage.qml</file>
+        <file>qml/ChannelWatchView.qml</file>
         <file>qml/PlayerPage.qml</file>
         <file>qml/components/VideoTile.qml</file>
         <file>qml/components/CallMediaControls.qml</file>

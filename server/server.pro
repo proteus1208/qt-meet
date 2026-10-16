@@ -4,14 +4,17 @@ include(../config/libs.pri)
 TEMPLATE = app
 TARGET   = QtMeetServer
 DESTDIR  = $$QM_BIN_DIR
-QT      += core gui network sql concurrent quick qml
+QT      += core gui network sql concurrent quick qml multimedia
 
 qmUseLib(qmrtc)
+qmUseLib(qmmedia)
 qmUseLib(qmcommon)
 qmUseLib(qmproto)
 
 include(../config/protobuf.pri)
+include(../config/ffmpeg.pri)
 include(../config/datachannel.pri)
+include(../config/opus.pri)
 include(../config/apm.pri)
 
 INCLUDEPATH += $$PWD
@@ -24,6 +27,7 @@ HEADERS += \
     dispatch/RequestContext.h \
     streaming/HttpMediaServer.h \
     streaming/Sfu.h \
+    streaming/ChannelPublisher.h \
     net/Connection.h \
     net/ConnectionManager.h \
     net/NetWorker.h \
@@ -32,6 +36,7 @@ HEADERS += \
     services/ChatService.h \
     services/FileService.h \
     services/FolderService.h \
+    services/ChannelService.h \
     services/MeetingService.h \
     services/UserService.h \
     storage/StorageManager.h \
@@ -44,6 +49,7 @@ SOURCES += \
     dispatch/Dispatcher.cpp \
     streaming/HttpMediaServer.cpp \
     streaming/Sfu.cpp \
+    streaming/ChannelPublisher.cpp \
     net/Connection.cpp \
     net/ConnectionManager.cpp \
     net/NetWorker.cpp \
@@ -52,6 +58,7 @@ SOURCES += \
     services/ChatService.cpp \
     services/FileService.cpp \
     services/FolderService.cpp \
+    services/ChannelService.cpp \
     services/MeetingService.cpp \
     services/UserService.cpp \
     storage/StorageManager.cpp

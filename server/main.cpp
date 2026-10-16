@@ -60,7 +60,7 @@ int main(int argc, char *argv[])
         return app->exec();
     }
 
-    qm::AdminController admin(&server);
+    qm::AdminController admin(&server, configPath);
     qmlRegisterSingletonInstance("QtMeet.Server", 1, 0, "Admin", &admin);
 
     QQmlApplicationEngine engine;

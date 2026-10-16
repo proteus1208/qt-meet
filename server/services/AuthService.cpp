@@ -40,6 +40,11 @@ AuthService::AuthService(StorageManager *storage, SessionRegistry *sessions,
 {
 }
 
+void AuthService::setSettings(const ServerSettings &settings)
+{
+    m_settings = settings;
+}
+
 void AuthService::handle(const RequestContext &context, const proto::Envelope &envelope)
 {
     switch (envelope.body_case()) {
@@ -130,6 +135,9 @@ void AuthService::onLogin(const RequestContext &context, const proto::Envelope &
     res->set_http_base_url(httpBase.toStdString());
     res->set_rtc_port_min(m_settings.rtcPortMin);
     res->set_rtc_port_max(m_settings.rtcPortMax);
+    res->set_transport_mode(m_settings.transportMode == TransportMode::Multicast
+                                ? proto::TRANSPORT_MULTICAST
+                                : proto::TRANSPORT_DIRECT);
 
     auto *me = res->mutable_me();
     me->set_id(user->id);

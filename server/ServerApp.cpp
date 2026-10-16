@@ -4,6 +4,7 @@
 #include <QFile>
 #include <QSslCertificate>
 #include <QSslKey>
+#include <QtGlobal>
 #include <QThread>
 
 #include "common/Ids.h"
@@ -12,6 +13,7 @@
 #include "net/ConnectionManager.h"
 #include "net/SessionRegistry.h"
 #include "services/AuthService.h"
+#include "services/ChannelService.h"
 #include "services/ChatService.h"
 #include "services/FileService.h"
 #include "services/FolderService.h"
@@ -110,6 +112,7 @@ void ServerApp::stop()
     if (m_http)
         m_http->stop();
 
+    m_channels.reset();
     m_meetings.reset();
     m_folders.reset();
     m_files.reset();
@@ -151,6 +154,40 @@ QString ServerApp::hostedFolder() const
     return m_settings.hostedFolder;
 }
 
+void ServerApp::setTransportMode(TransportMode mode)
+{
+    if (m_settings.transportMode == mode)
+        return;
+    m_settings.transportMode = mode;
+    if (m_auth)
+        m_auth->setSettings(m_settings);
+    if (m_channels)
+        m_channels->setTransportMode(mode);
+    Q_EMIT transportModeChanged();
+}
+
+TransportMode ServerApp::transportMode() const
+{
+    return m_settings.transportMode;
+}
+
+void ServerApp::setDefaultChannelBitrateKbps(int kbps)
+{
+    const int clamped = qBound(200, kbps, 8000);
+    if (m_settings.defaultChannelBitrateKbps == clamped)
+        return;
+    m_settings.defaultChannelBitrateKbps = clamped;
+    if (m_auth)
+        m_auth->setSettings(m_settings);
+    if (m_channels)
+        m_channels->setDefaultBitrateKbps(clamped);
+}
+
+int ServerApp::defaultChannelBitrateKbps() const
+{
+    return m_settings.defaultChannelBitrateKbps;
+}
+
 bool ServerApp::httpMediaListening() const
 {
     return m_http && m_http->isListening();
@@ -164,6 +201,11 @@ SessionRegistry *ServerApp::sessions() const
 ConnectionManager *ServerApp::connections() const
 {
     return m_connections.get();
+}
+
+ChannelService *ServerApp::channels() const
+{
+    return m_channels.get();
 }
 
 const ServerSettings &ServerApp::settings() const
@@ -202,11 +244,17 @@ void ServerApp::buildComponents()
     rtc.portRangeEnd = m_settings.rtcPortMax;
     m_sfu = std::make_unique<Sfu>(rtc);
     m_meetings = std::make_unique<MeetingService>(m_storage.get(), m_sessions.get(), m_sfu.get());
+    m_channels = std::make_unique<ChannelService>(
+        m_sessions.get(), m_sfu.get(), m_settings.dataDir + QStringLiteral("/channels.json"));
+    m_channels->setTransportMode(m_settings.transportMode);
+    m_channels->setDefaultBitrateKbps(m_settings.defaultChannelBitrateKbps);
 
     connect(m_sessions.get(), &SessionRegistry::userOnline, m_users.get(), &UserService::onUserOnline);
     connect(m_sessions.get(), &SessionRegistry::userOffline, m_users.get(), &UserService::onUserOffline);
     connect(m_sessions.get(), &SessionRegistry::userOffline, m_meetings.get(),
             &MeetingService::onUserOffline);
+    connect(m_sessions.get(), &SessionRegistry::userOffline, m_channels.get(),
+            &ChannelService::onUserOffline);
 }
 
 void ServerApp::registerHandlers()
@@ -227,6 +275,10 @@ void ServerApp::registerHandlers()
     m_dispatcher->registerHandler(proto::Envelope::kMeetingCreate, m_meetings.get());
     m_dispatcher->registerHandler(proto::Envelope::kMeetingJoin, m_meetings.get());
     m_dispatcher->registerHandler(proto::Envelope::kMeetingLeave, m_meetings.get());
+    m_dispatcher->registerHandler(proto::Envelope::kChannelListReq, m_channels.get());
+    m_dispatcher->registerHandler(proto::Envelope::kChannelJoin, m_channels.get());
+    m_dispatcher->registerHandler(proto::Envelope::kChannelLeave, m_channels.get());
+    m_dispatcher->registerHandler(proto::Envelope::kChannelBandwidth, m_channels.get());
 }
 
 QSslConfiguration ServerApp::loadSsl() const

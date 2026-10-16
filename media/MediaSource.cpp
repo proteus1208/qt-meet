@@ -448,4 +448,48 @@ SourceSpec MediaSource::defaultScreen()
     return screen;
 }
 
+QList<SourceSpec> MediaSource::enumerateSystemAudio()
+{
+    ensureFfmpeg();
+    QList<SourceSpec> out;
+#if defined(Q_OS_LINUX)
+    SourceSpec monitor;
+    monitor.kind = SourceKind::Microphone;
+    monitor.format = QStringLiteral("pulse");
+    monitor.location = QStringLiteral("default.monitor");
+    monitor.displayName = QStringLiteral("System audio (Pulse monitor)");
+    out.append(monitor);
+#elif defined(Q_OS_WIN)
+    // Prefer loopback-looking dshow devices (Stereo Mix, Wave Out Mix, …).
+    const QList<SourceSpec> mics = enumerateMicrophones();
+    for (const SourceSpec &mic : mics) {
+        const QString hay = (mic.displayName + QLatin1Char(' ') + mic.location).toLower();
+        if (hay.contains(QStringLiteral("stereo mix")) || hay.contains(QStringLiteral("wave out"))
+            || hay.contains(QStringLiteral("what u hear")) || hay.contains(QStringLiteral("loopback"))
+            || hay.contains(QStringLiteral("cable")) || hay.contains(QStringLiteral("vb-audio"))) {
+            SourceSpec sys = mic;
+            sys.displayName = QStringLiteral("System audio — %1").arg(mic.displayName);
+            out.append(sys);
+        }
+    }
+    if (out.isEmpty()) {
+        // Still offer every mic so admins can pick a virtual cable manually.
+        for (const SourceSpec &mic : mics) {
+            SourceSpec sys = mic;
+            sys.displayName = QStringLiteral("Audio — %1").arg(mic.displayName);
+            out.append(sys);
+        }
+    }
+#endif
+    return out;
+}
+
+SourceSpec MediaSource::defaultSystemAudio()
+{
+    const QList<SourceSpec> list = enumerateSystemAudio();
+    if (!list.isEmpty())
+        return list.first();
+    return defaultMicrophone();
+}
+
 } // namespace qm

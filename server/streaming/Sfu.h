@@ -32,6 +32,12 @@ public:
     void removeParticipant(const QString &roomId, UserId user);
     void removeEverywhere(UserId user);
 
+    /// Server-side IPTV publisher (no client PeerConnection). Fans encoded frames to viewers.
+    void addLocalPublisher(const QString &roomId, UserId publisherId);
+    void removeLocalPublisher(const QString &roomId, UserId publisherId);
+    bool publishFrame(const QString &roomId, UserId publisherId, bool video,
+                      const QByteArray &encodedFrame, quint32 rtpTimestamp);
+
     void applySignal(UserId user, const proto::RtcSignal &signal);
 
     QList<proto::TrackInfo> tracksOf(const QString &roomId, UserId publisher) const;

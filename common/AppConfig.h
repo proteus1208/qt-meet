@@ -5,6 +5,11 @@
 
 namespace qm {
 
+enum class TransportMode {
+    Direct = 0,     // unicast SFU relay to each participant / viewer
+    Multicast = 1,  // shared encode + SFU fan-out (best for many IPTV viewers)
+};
+
 struct ServerSettings
 {
     QHostAddress bindAddress = QHostAddress::Any;
@@ -18,6 +23,8 @@ struct ServerSettings
     QString keyFile;
     int     netThreads     = 0;   // 0 = auto (cores / 2)
     int     handlerThreads = 0;   // 0 = auto (cores)
+    TransportMode transportMode = TransportMode::Direct;
+    int     defaultChannelBitrateKbps = 1200;
 };
 
 struct ClientSettings

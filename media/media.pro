@@ -9,6 +9,7 @@ DEFINES += __STDC_CONSTANT_MACROS __STDC_FORMAT_MACROS
 
 HEADERS += \
     AudioOutput.h \
+    BandwidthProfile.h \
     CaptureSource.h \
     Decoder.h \
     Encoder.h \
@@ -25,6 +26,7 @@ HEADERS += \
 
 SOURCES += \
     AudioOutput.cpp \
+    BandwidthProfile.cpp \
     CaptureSource.cpp \
     Decoder.cpp \
     Encoder.cpp \

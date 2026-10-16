@@ -19,6 +19,7 @@ struct Sfu::Participant
     QHash<UserId, int> preferredLayer;
     quint32            audioSsrc = 0;
     quint32            videoSsrc = 0;
+    bool               localPublisher = false; // IPTV server-side source
 };
 
 struct Sfu::Room
@@ -84,16 +85,29 @@ void Sfu::addParticipant(const QString &roomId, UserId user)
         participant->videoSsrc = quint32(QRandomGenerator::global()->generate());
         participant->peer = new RtcPeer(m_config, RtcPeer::Role::Sfu, roomId, this);
 
-        // Ingest tracks from this client.
-        participant->audioRecvTrack =
-            participant->peer->addTrack(RtcPeer::TrackKind::Audio, QStringLiteral("audio"),
-                                        participant->audioSsrc, RtcPeer::Direction::RecvOnly);
-        participant->videoRecvTrack =
-            participant->peer->addTrack(RtcPeer::TrackKind::Video, QStringLiteral("video"),
-                                        participant->videoSsrc, RtcPeer::Direction::RecvOnly);
-
-        // Egress tracks for every existing publisher.
+        // IPTV rooms (any local publisher): viewers only subscribe to publishers, no viewer mesh.
+        bool channelRoom = false;
         for (Participant *other : room->participants) {
+            if (other->localPublisher) {
+                channelRoom = true;
+                break;
+            }
+        }
+
+        // Ingest tracks from this client (skip for IPTV viewers — receive-only).
+        if (!channelRoom) {
+            participant->audioRecvTrack =
+                participant->peer->addTrack(RtcPeer::TrackKind::Audio, QStringLiteral("audio"),
+                                            participant->audioSsrc, RtcPeer::Direction::RecvOnly);
+            participant->videoRecvTrack =
+                participant->peer->addTrack(RtcPeer::TrackKind::Video, QStringLiteral("video"),
+                                            participant->videoSsrc, RtcPeer::Direction::RecvOnly);
+        }
+
+        for (Participant *other : room->participants) {
+            if (channelRoom && !other->localPublisher)
+                continue;
+
             const int a = participant->peer->addTrack(
                 RtcPeer::TrackKind::Audio, QStringLiteral("a-%1").arg(other->user),
                 other->audioSsrc, RtcPeer::Direction::SendOnly);
@@ -103,15 +117,17 @@ void Sfu::addParticipant(const QString &roomId, UserId user)
             participant->audioSendByPublisher.insert(other->user, a);
             participant->videoSendByPublisher.insert(other->user, v);
 
-            // Existing peers also need send tracks for the newcomer.
-            const int oa = other->peer->addTrack(
-                RtcPeer::TrackKind::Audio, QStringLiteral("a-%1").arg(user),
-                participant->audioSsrc, RtcPeer::Direction::SendOnly);
-            const int ov = other->peer->addTrack(
-                RtcPeer::TrackKind::Video, QStringLiteral("v-%1").arg(user),
-                participant->videoSsrc, RtcPeer::Direction::SendOnly);
-            other->audioSendByPublisher.insert(user, oa);
-            other->videoSendByPublisher.insert(user, ov);
+            // Meeting mesh: existing peers also need send tracks for the newcomer.
+            if (!channelRoom && other->peer && !other->localPublisher) {
+                const int oa = other->peer->addTrack(
+                    RtcPeer::TrackKind::Audio, QStringLiteral("a-%1").arg(user),
+                    participant->audioSsrc, RtcPeer::Direction::SendOnly);
+                const int ov = other->peer->addTrack(
+                    RtcPeer::TrackKind::Video, QStringLiteral("v-%1").arg(user),
+                    participant->videoSsrc, RtcPeer::Direction::SendOnly);
+                other->audioSendByPublisher.insert(user, oa);
+                other->videoSendByPublisher.insert(user, ov);
+            }
         }
 
         room->participants.insert(user, participant);
@@ -156,6 +172,8 @@ void Sfu::removeParticipant(const QString &roomId, UserId user)
     delete p;
 
     for (Participant *other : room->participants) {
+        if (!other->peer)
+            continue;
         if (const int t = other->audioSendByPublisher.take(user); t >= 0)
             other->peer->removeTrack(t);
         if (const int t = other->videoSendByPublisher.take(user); t >= 0)
@@ -286,6 +304,78 @@ void Sfu::renegotiate(Room &room, UserId subscriber)
     Participant *p = room.participants.value(subscriber);
     if (p && p->peer)
         p->peer->createOffer();
+}
+
+void Sfu::addLocalPublisher(const QString &roomId, UserId publisherId)
+{
+    openRoom(roomId);
+    QList<UserId> renegotiateUsers;
+    {
+        QMutexLocker locker(&m_mutex);
+        Room *room = m_rooms.value(roomId);
+        if (!room || room->participants.contains(publisherId))
+            return;
+
+        auto *publisher = new Participant;
+        publisher->user = publisherId;
+        publisher->localPublisher = true;
+        publisher->audioSsrc = quint32(QRandomGenerator::global()->generate());
+        publisher->videoSsrc = quint32(QRandomGenerator::global()->generate());
+        room->participants.insert(publisherId, publisher);
+
+        for (Participant *viewer : room->participants) {
+            if (viewer->user == publisherId || !viewer->peer)
+                continue;
+            const int a = viewer->peer->addTrack(
+                RtcPeer::TrackKind::Audio, QStringLiteral("a-%1").arg(publisherId),
+                publisher->audioSsrc, RtcPeer::Direction::SendOnly);
+            const int v = viewer->peer->addTrack(
+                RtcPeer::TrackKind::Video, QStringLiteral("v-%1").arg(publisherId),
+                publisher->videoSsrc, RtcPeer::Direction::SendOnly);
+            viewer->audioSendByPublisher.insert(publisherId, a);
+            viewer->videoSendByPublisher.insert(publisherId, v);
+            renegotiateUsers.append(viewer->user);
+        }
+    }
+    for (UserId user : renegotiateUsers) {
+        QMutexLocker locker(&m_mutex);
+        if (Room *room = m_rooms.value(roomId))
+            renegotiate(*room, user);
+    }
+    Q_EMIT tracksChanged(roomId, publisherId);
+    qCInfo(lcRtc) << "SFU local publisher" << publisherId << "in" << roomId;
+}
+
+void Sfu::removeLocalPublisher(const QString &roomId, UserId publisherId)
+{
+    removeParticipant(roomId, publisherId);
+}
+
+bool Sfu::publishFrame(const QString &roomId, UserId publisherId, bool video,
+                       const QByteArray &encodedFrame, quint32 rtpTimestamp)
+{
+    if (encodedFrame.isEmpty())
+        return false;
+    QMutexLocker locker(&m_mutex);
+    Room *room = m_rooms.value(roomId);
+    if (!room)
+        return false;
+    Participant *pub = room->participants.value(publisherId);
+    if (!pub || !pub->localPublisher)
+        return false;
+
+    bool any = false;
+    for (Participant *sub : room->participants) {
+        if (sub->user == publisherId || !sub->peer)
+            continue;
+        const int outTrack = video ? sub->videoSendByPublisher.value(publisherId, -1)
+                                   : sub->audioSendByPublisher.value(publisherId, -1);
+        if (outTrack < 0)
+            continue;
+        if (sub->peer->sendFrame(outTrack, encodedFrame, rtpTimestamp))
+            any = true;
+    }
+    return any;
 }
 
 } // namespace qm

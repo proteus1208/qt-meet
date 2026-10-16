@@ -23,6 +23,8 @@ class SessionController : public QObject
     Q_PROPERTY(int serverPort READ serverPort WRITE setServerPort NOTIFY serverHostChanged)
     Q_PROPERTY(bool connected READ connected NOTIFY connectedChanged)
     Q_PROPERTY(QString errorString READ errorString NOTIFY errorChanged)
+    Q_PROPERTY(int transportMode READ transportMode NOTIFY sessionChanged)
+    Q_PROPERTY(QString transportModeLabel READ transportModeLabel NOTIFY sessionChanged)
 
 public:
     explicit SessionController(NetworkClient *network, QObject *parent = nullptr);
@@ -43,6 +45,8 @@ public:
     QString httpBaseUrl() const;
     quint16 rtcPortMin() const;
     quint16 rtcPortMax() const;
+    int     transportMode() const;
+    QString transportModeLabel() const;
 
     Q_INVOKABLE void login(const QString &username, const QString &password);
     Q_INVOKABLE void registerUser(const QString &username, const QString &displayName, const QString &password);
@@ -69,6 +73,7 @@ private:
     QString         m_error;
     quint16         m_rtcPortMin = 40000;
     quint16         m_rtcPortMax = 40100;
+    int             m_transportMode = 0; // 0 Direct, 1 Multicast
     bool            m_loggedIn = false;
     bool            m_busy = false;
 };

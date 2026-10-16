@@ -33,6 +33,14 @@ enum MediaKind {
   MEDIA_SCREEN = 2;
 }
 
+// How the server delivers live media on the LAN.
+// DIRECT    = unicast SFU relay to each viewer / participant
+// MULTICAST = shared feed optimized for many viewers (one encode, SFU fan-out)
+enum TransportMode {
+  TRANSPORT_DIRECT    = 0;
+  TRANSPORT_MULTICAST = 1;
+}
+
 message UserInfo {
   uint64   id           = 1;
   string   username     = 2;
@@ -56,13 +64,14 @@ message LoginReq {
 }
 
 message LoginRes {
-  bool      ok             = 1;
-  ErrorCode error          = 2;
-  UserInfo  me             = 3;
-  string    session_token  = 4;  // also used as HTTP media token
-  string    http_base_url  = 5;  // e.g. http://10.1.2.3:7401
-  uint32    rtc_port_min   = 6;
-  uint32    rtc_port_max   = 7;
+  bool          ok             = 1;
+  ErrorCode     error          = 2;
+  UserInfo      me             = 3;
+  string        session_token  = 4;  // also used as HTTP media token
+  string        http_base_url  = 5;  // e.g. http://10.1.2.3:7401
+  uint32        rtc_port_min   = 6;
+  uint32        rtc_port_max   = 7;
+  TransportMode transport_mode = 8;
 }
 
 message Logout {}
@@ -169,10 +178,11 @@ enum CallKind {
 }
 
 message CallInvite {
-  string   call_id      = 1;
-  uint64   from_user_id = 2;
-  uint64   to_user_id   = 3;
-  CallKind kind         = 4;
+  string   call_id           = 1;
+  uint64   from_user_id      = 2;
+  uint64   to_user_id        = 3;
+  CallKind kind              = 4;
+  string   from_display_name = 5;  // filled by server so callee shows the real name
 }
 
 message CallAnswer {
@@ -205,9 +215,10 @@ message RtcSignal {
 }
 
 message MediaState {
-  string session_id = 1;
-  bool   audio_on   = 2;
-  bool   video_on   = 3;
+  string session_id     = 1;
+  bool   audio_on       = 2;
+  bool   video_on       = 3;
+  uint32 bandwidth_kbps = 4;  // preferred video bitrate (0 = server default)
 }
 
 // ---------------------------------------------------------------- meetings
@@ -285,6 +296,56 @@ message DirListRes {
   string            http_url_prefix = 3;
 }
 
+// ---------------------------------------------------------------- IPTV-style live channels (server-captured camera/screen + mic/system audio)
+
+message ChannelInfo {
+  string id            = 1;
+  string name          = 2;
+  bool   running       = 3;
+  bool   has_video     = 4;
+  bool   has_audio     = 5;
+  string video_label   = 6;  // human-readable source (e.g. "Camera", "Screen")
+  string audio_label   = 7;
+}
+
+message ChannelListReq {}
+
+message ChannelListRes {
+  repeated ChannelInfo channels = 1;
+}
+
+message ChannelJoin {
+  string channel_id     = 1;
+  uint32 bandwidth_kbps = 2;  // preferred receive bitrate for this viewer
+}
+
+message ChannelJoined {
+  string               channel_id   = 1;
+  string               name         = 2;
+  string               session_id   = 3;  // SFU room id (== channel_id)
+  uint64               publisher_id = 4;  // synthetic SFU publisher
+  repeated TrackInfo   tracks       = 5;
+}
+
+message ChannelLeave {
+  string channel_id = 1;
+}
+
+message ChannelBandwidth {
+  string channel_id     = 1;
+  uint32 bandwidth_kbps = 2;
+}
+
+message ChannelEvt {
+  enum Change {
+    ADDED   = 0;
+    UPDATED = 1;
+    REMOVED = 2;
+  }
+  Change      change  = 1;
+  ChannelInfo channel = 2;
+}
+
 // ---------------------------------------------------------------- envelope
 
 message Envelope {
@@ -326,6 +387,14 @@ message Envelope {
 
     DirListReq     dir_list_req     = 70;
     DirListRes     dir_list_res     = 71;
+
+    ChannelListReq    channel_list_req    = 80;
+    ChannelListRes    channel_list_res    = 81;
+    ChannelJoin       channel_join        = 82;
+    ChannelJoined     channel_joined      = 83;
+    ChannelLeave      channel_leave       = 84;
+    ChannelEvt        channel_evt         = 85;
+    ChannelBandwidth  channel_bandwidth   = 86;
 
     Error          error            = 99;
   }

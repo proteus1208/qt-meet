@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QElapsedTimer>
 #include <QHash>
 #include <QObject>
 #include <QPointer>
@@ -8,9 +9,12 @@
 #include <memory>
 
 #include "common/Ids.h"
+#include "media/BandwidthProfile.h"
 #include "media/MediaTypes.h"
 #include "messages.pb.h"
 #include "rtc/RtcConfig.h"
+
+struct AVFrame;
 
 namespace qm {
 
@@ -20,12 +24,14 @@ class CaptureSource;
 class Encoder;
 class NetworkClient;
 class ResourceMonitor;
+class Resampler;
 class RtcPeer;
+class Scaler;
 
 /// Aim: the media pipeline of one call / meeting session.
-///   send:    CaptureSource -> AudioProcessor (mic) -> Encoder (Opus / H.264 HW or SW) -> RtcPeer
+///   send:    CaptureSource -> scale/pace/resample -> Encoder -> RtcPeer
 ///   receive: RtcPeer -> JitterBuffer -> RtpDepacketizer -> Decoder -> QVideoSink / audio mix
-/// Adapts resolution / bitrate / HW usage from ResourceMonitor and bandwidth estimates.
+/// Adapts resolution / fps / bitrate / audio rate from the selected bandwidth profile.
 class CallEngine : public QObject
 {
     Q_OBJECT
@@ -48,6 +54,15 @@ public:
     void setCameraEnabled(bool enabled);
     void setSpeakerEnabled(bool enabled);
     bool speakerEnabled() const;
+
+    void setTargetVideoBitrate(int bitsPerSecond);
+    int  targetVideoBitrate() const;
+    BandwidthProfile bandwidthProfile() const;
+
+    void  setMicVolume(qreal volume);      // 0..1 send gain
+    qreal micVolume() const;
+    void  setSpeakerVolume(qreal volume);  // 0..1 playback
+    qreal speakerVolume() const;
 
     void setCamera(const SourceSpec &camera);
     void setMicrophone(const SourceSpec &microphone);
@@ -80,7 +95,14 @@ private:
     void adaptToLoad();
     void mixAndPlayAudio();
     void applySpeakerMute();
+    bool ensureVideoPipeline();
+    void applyBandwidthProfile(const BandwidthProfile &profile, bool forceReopen);
+    bool openVideoEncoder(const BandwidthProfile &profile);
+    bool openAudioEncoder(const BandwidthProfile &profile);
+    bool shouldSendVideoFrame();
+    FrameRef scaleVideoFrame(const FrameRef &frame);
     SourceSpec activeVideoSpec() const;
+    static void applyPcmGain(AVFrame *frame, qreal gain);
 
     NetworkClient                   *m_network = nullptr;
     ResourceMonitor                 *m_monitor = nullptr;
@@ -93,16 +115,24 @@ private:
     std::unique_ptr<AudioProcessor>  m_audioProcessor;
     std::unique_ptr<AudioOutput>     m_audioOutput;
     std::unique_ptr<RtcPeer>         m_peer;
+    std::unique_ptr<Scaler>          m_scaler;
+    std::unique_ptr<Resampler>       m_audioResampler;
 
     SourceSpec                       m_camera;
     SourceSpec                       m_microphone;
     SourceSpec                       m_screen;
     QString                          m_speakerId;
     bool                             m_screenSharing = false;
+    bool                             m_wantAudio = false;
+    bool                             m_wantVideo = false;
 
+    BandwidthProfile                 m_profile;
+    int                              m_targetVideoBitrate = 0; // 0 = use RtcConfig max
     int                              m_audioTrack = -1;
     int                              m_videoTrack = -1;
     int                              m_videoLowTrack = -1;
+    QElapsedTimer                    m_videoPaceTimer;
+    qint64                           m_nextVideoSendMs = 0;
     QHash<int, RemoteStream *>       m_remoteByTrack;
     QHash<quint32, UserId>           m_ssrcToUser;
     QHash<UserId, QPointer<QVideoSink>> m_remoteSinks;
@@ -110,6 +140,8 @@ private:
     bool                             m_micEnabled = true;
     bool                             m_cameraEnabled = true;
     bool                             m_speakerEnabled = true;
+    qreal                            m_micVolume = 1.0;
+    qreal                            m_speakerVolume = 1.0;
 };
 
 } // namespace qm

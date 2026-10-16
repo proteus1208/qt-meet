@@ -103,6 +103,16 @@ quint16 SessionController::rtcPortMax() const
     return m_rtcPortMax;
 }
 
+int SessionController::transportMode() const
+{
+    return m_transportMode;
+}
+
+QString SessionController::transportModeLabel() const
+{
+    return m_transportMode == 1 ? QStringLiteral("Multicast") : QStringLiteral("Direct");
+}
+
 void SessionController::login(const QString &username, const QString &password)
 {
     sendLogin(username, password, false, {});
@@ -226,6 +236,7 @@ void SessionController::onLoginReply(const proto::Envelope &reply)
         m_rtcPortMin = quint16(res.rtc_port_min());
     if (res.rtc_port_max() > 0)
         m_rtcPortMax = quint16(res.rtc_port_max());
+    m_transportMode = (res.transport_mode() == proto::TRANSPORT_MULTICAST) ? 1 : 0;
     // Server may advertise 127.0.0.1 when bound to Any; rewrite to the host we dialed.
     // Empty http_base_url means the server's HTTP media listener is down — leave it empty.
     if (!m_httpBaseUrl.isEmpty()) {

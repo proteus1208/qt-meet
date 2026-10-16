@@ -64,6 +64,11 @@ bool AppConfig::load(const QString &path)
     m_server.keyFile = s.value(QStringLiteral("keyFile")).toString();
     m_server.netThreads = s.value(QStringLiteral("netThreads"), 0).toInt();
     m_server.handlerThreads = s.value(QStringLiteral("handlerThreads"), 0).toInt();
+    m_server.transportMode =
+        s.value(QStringLiteral("transportMode"), 0).toInt() == 1 ? TransportMode::Multicast
+                                                                 : TransportMode::Direct;
+    m_server.defaultChannelBitrateKbps =
+        s.value(QStringLiteral("defaultChannelBitrateKbps"), 1200).toInt();
     s.endGroup();
 
     s.beginGroup(QStringLiteral("client"));
@@ -100,6 +105,9 @@ bool AppConfig::save(const QString &path) const
     s.setValue(QStringLiteral("keyFile"), m_server.keyFile);
     s.setValue(QStringLiteral("netThreads"), m_server.netThreads);
     s.setValue(QStringLiteral("handlerThreads"), m_server.handlerThreads);
+    s.setValue(QStringLiteral("transportMode"),
+               m_server.transportMode == TransportMode::Multicast ? 1 : 0);
+    s.setValue(QStringLiteral("defaultChannelBitrateKbps"), m_server.defaultChannelBitrateKbps);
     s.endGroup();
 
     s.beginGroup(QStringLiteral("client"));

@@ -7,10 +7,10 @@ import "theme"
 
 ApplicationWindow {
     id: window
-    width: 980
-    height: 680
-    minimumWidth: 820
-    minimumHeight: 560
+    width: 1100
+    height: 760
+    minimumWidth: 920
+    minimumHeight: 640
     visible: true
     title: qsTr("QtMeet Server")
     color: theme.bg
@@ -293,6 +293,44 @@ ApplicationWindow {
                             wrapMode: Text.Wrap
                         }
 
+                        Label {
+                            text: qsTr("Delivery mode")
+                            color: window.theme.text
+                            font.pixelSize: 13
+                            font.bold: true
+                        }
+                        ComboBox {
+                            id: transportBox
+                            Layout.fillWidth: true
+                            model: Admin.transportModeLabels
+                            currentIndex: Admin.transportMode
+                            onActivated: Admin.transportMode = index
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            wrapMode: Text.Wrap
+                            text: Admin.transportMode === 1
+                                  ? qsTr("Multicast: one shared encode for channels, best with many viewers.")
+                                  : qsTr("Direct: unicast SFU relay to each viewer and call participant.")
+                            color: window.theme.textMuted
+                            font.pixelSize: 11
+                        }
+
+                        Label {
+                            text: qsTr("Default channel bitrate (kbps)")
+                            color: window.theme.text
+                            font.pixelSize: 13
+                            font.bold: true
+                        }
+                        SpinBox {
+                            Layout.fillWidth: true
+                            from: 200
+                            to: 8000
+                            stepSize: 100
+                            value: Admin.defaultChannelBitrateKbps
+                            onValueModified: Admin.defaultChannelBitrateKbps = value
+                        }
+
                         RowLayout {
                             Layout.fillWidth: true
                             spacing: 12
@@ -408,7 +446,7 @@ ApplicationWindow {
                 }
             }
 
-            // Online users
+            // Right: users + live channels
             Rectangle {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
@@ -420,24 +458,32 @@ ApplicationWindow {
                 ColumnLayout {
                     anchors.fill: parent
                     anchors.margins: 18
-                    spacing: 14
+                    spacing: 12
 
-                    RowLayout {
+                    TabBar {
+                        id: rightTabs
                         Layout.fillWidth: true
-                        spacing: 8
+                        background: Rectangle { color: "transparent" }
 
-                        Text { text: "👥"; font.pixelSize: 16 }
-                        Label {
+                        TabButton {
                             text: qsTr("Online users")
-                            color: window.theme.text
-                            font.pixelSize: 16
-                            font.bold: true
+                            width: implicitWidth + 24
                         }
+                        TabButton {
+                            text: qsTr("Live channels")
+                            width: implicitWidth + 24
+                        }
+                    }
 
-                        Item { Layout.fillWidth: true }
+                    // Users pane
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        Layout.fillHeight: true
+                        spacing: 12
+                        visible: rightTabs.currentIndex === 0
 
                         Rectangle {
-                            Layout.preferredWidth: 200
+                            Layout.fillWidth: true
                             Layout.preferredHeight: 36
                             radius: 18
                             color: window.theme.surfaceAlt
@@ -473,117 +519,287 @@ ApplicationWindow {
                                 }
                             }
                         }
-                    }
 
-                    ListView {
-                        id: userList
-                        Layout.fillWidth: true
-                        Layout.fillHeight: true
-                        clip: true
-                        spacing: 6
-                        model: userModel
-
-                        delegate: Rectangle {
-                            id: userDelegate
-                            required property int index
-                            required property string name
-                            required property string initials
-                            required property string avatarColor
-                            required property string ago
-
-                            width: userList.width
-                            height: (userSearch.text.length === 0
-                                     || name.toLowerCase().indexOf(userSearch.text.toLowerCase()) >= 0)
-                                    ? 56 : 0
-                            radius: window.theme.radiusSm
-                            color: hover.hovered ? window.theme.surfaceHover : "transparent"
-                            visible: height > 0
+                        ListView {
+                            id: userList
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
                             clip: true
+                            spacing: 6
+                            model: userModel
 
-                            HoverHandler { id: hover }
+                            delegate: Rectangle {
+                                id: userDelegate
+                                required property int index
+                                required property string name
+                                required property string initials
+                                required property string avatarColor
+                                required property string ago
 
-                            RowLayout {
-                                anchors.fill: parent
-                                anchors.leftMargin: 8
-                                anchors.rightMargin: 8
-                                spacing: 12
-                                visible: userDelegate.visible
+                                width: userList.width
+                                height: (userSearch.text.length === 0
+                                         || name.toLowerCase().indexOf(userSearch.text.toLowerCase()) >= 0)
+                                        ? 56 : 0
+                                radius: window.theme.radiusSm
+                                color: hover.hovered ? window.theme.surfaceHover : "transparent"
+                                visible: height > 0
+                                clip: true
 
-                                Rectangle {
-                                    Layout.preferredWidth: 40
-                                    Layout.preferredHeight: 40
-                                    radius: 20
-                                    color: userDelegate.avatarColor
+                                HoverHandler { id: hover }
 
-                                    Text {
-                                        anchors.centerIn: parent
-                                        text: userDelegate.initials
-                                        color: "white"
-                                        font.bold: true
-                                        font.pixelSize: 13
+                                RowLayout {
+                                    anchors.fill: parent
+                                    anchors.leftMargin: 8
+                                    anchors.rightMargin: 8
+                                    spacing: 12
+                                    visible: userDelegate.visible
+
+                                    Rectangle {
+                                        Layout.preferredWidth: 40
+                                        Layout.preferredHeight: 40
+                                        radius: 20
+                                        color: userDelegate.avatarColor
+
+                                        Text {
+                                            anchors.centerIn: parent
+                                            text: userDelegate.initials
+                                            color: "white"
+                                            font.bold: true
+                                            font.pixelSize: 13
+                                        }
                                     }
-                                }
 
-                                ColumnLayout {
-                                    Layout.fillWidth: true
-                                    spacing: 2
+                                    ColumnLayout {
+                                        Layout.fillWidth: true
+                                        spacing: 2
+
+                                        Label {
+                                            text: userDelegate.name
+                                            color: window.theme.text
+                                            font.pixelSize: 14
+                                            font.bold: true
+                                        }
+
+                                        RowLayout {
+                                            spacing: 6
+                                            Rectangle {
+                                                width: 7
+                                                height: 7
+                                                radius: 3.5
+                                                color: window.theme.success
+                                            }
+                                            Label {
+                                                text: qsTr("Online")
+                                                color: window.theme.textMuted
+                                                font.pixelSize: 11
+                                            }
+                                        }
+                                    }
 
                                     Label {
-                                        text: userDelegate.name
-                                        color: window.theme.text
-                                        font.pixelSize: 14
-                                        font.bold: true
-                                    }
-
-                                    RowLayout {
-                                        spacing: 6
-                                        Rectangle {
-                                            width: 7
-                                            height: 7
-                                            radius: 3.5
-                                            color: window.theme.success
-                                        }
-                                        Label {
-                                            text: qsTr("Online")
-                                            color: window.theme.textMuted
-                                            font.pixelSize: 11
-                                        }
+                                        text: userDelegate.ago
+                                        color: window.theme.textDim
+                                        font.pixelSize: 12
                                     }
                                 }
+                            }
+                        }
 
+                        Rectangle {
+                            Layout.fillWidth: true
+                            Layout.preferredHeight: 64
+                            radius: window.theme.radiusSm
+                            color: window.theme.surfaceAlt
+                            border.color: window.theme.border
+                            border.width: 1
+                            visible: Admin.onlineUsers.length === 0
+
+                            Column {
+                                anchors.centerIn: parent
+                                spacing: 4
+                                Text {
+                                    anchors.horizontalCenter: parent.horizontalCenter
+                                    text: "👤"
+                                    font.pixelSize: 16
+                                    opacity: 0.35
+                                }
                                 Label {
-                                    text: userDelegate.ago
+                                    anchors.horizontalCenter: parent.horizontalCenter
+                                    text: qsTr("No users online — preview list shown above")
                                     color: window.theme.textDim
-                                    font.pixelSize: 12
+                                    font.pixelSize: 11
                                 }
                             }
                         }
                     }
 
-                    Rectangle {
+                    // Channels pane
+                    ColumnLayout {
                         Layout.fillWidth: true
-                        Layout.preferredHeight: 64
-                        radius: window.theme.radiusSm
-                        color: window.theme.surfaceAlt
-                        border.color: window.theme.border
-                        border.width: 1
-                        visible: Admin.onlineUsers.length === 0
+                        Layout.fillHeight: true
+                        spacing: 10
+                        visible: rightTabs.currentIndex === 1
 
-                        Column {
-                            anchors.centerIn: parent
-                            spacing: 4
-                            Text {
-                                anchors.horizontalCenter: parent.horizontalCenter
-                                text: "👤"
-                                font.pixelSize: 16
-                                opacity: 0.35
+                        Label {
+                            Layout.fillWidth: true
+                            wrapMode: Text.Wrap
+                            text: qsTr("Add a live channel from a camera or screen, with mic or system audio. Clients can watch it like IPTV.")
+                            color: window.theme.textMuted
+                            font.pixelSize: 12
+                        }
+
+                        TextField {
+                            id: channelName
+                            Layout.fillWidth: true
+                            placeholderText: qsTr("Channel name")
+                            color: window.theme.text
+                            enabled: Admin.running
+                            background: Rectangle {
+                                radius: window.theme.radiusSm
+                                color: window.theme.surfaceAlt
+                                border.color: window.theme.border
+                                border.width: 1
                             }
-                            Label {
-                                anchors.horizontalCenter: parent.horizontalCenter
-                                text: qsTr("No users online — preview list shown above")
-                                color: window.theme.textDim
-                                font.pixelSize: 11
+                        }
+
+                        ComboBox {
+                            id: videoSourceBox
+                            Layout.fillWidth: true
+                            model: Admin.videoSourceLabels
+                            enabled: Admin.running
+                        }
+
+                        ComboBox {
+                            id: audioSourceBox
+                            Layout.fillWidth: true
+                            model: Admin.audioSourceLabels
+                            enabled: Admin.running
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            spacing: 8
+
+                            Button {
+                                text: qsTr("Refresh devices")
+                                onClicked: Admin.refreshSources()
                             }
+
+                            Item { Layout.fillWidth: true }
+
+                            Button {
+                                text: qsTr("Add channel")
+                                enabled: Admin.running && channelName.text.trim().length > 0
+                                         && videoSourceBox.count > 0 && audioSourceBox.count > 0
+                                onClicked: {
+                                    if (Admin.addChannel(channelName.text.trim(),
+                                                         videoSourceBox.currentIndex,
+                                                         audioSourceBox.currentIndex))
+                                        channelName.text = ""
+                                }
+                            }
+                        }
+
+                        ListView {
+                            id: channelList
+                            Layout.fillWidth: true
+                            Layout.fillHeight: true
+                            clip: true
+                            spacing: 8
+                            model: Admin.channels
+
+                            delegate: Rectangle {
+                                id: chDelegate
+                                required property var modelData
+                                width: channelList.width
+                                height: chCol.implicitHeight + 20
+                                radius: window.theme.radiusSm
+                                color: window.theme.surfaceAlt
+                                border.color: window.theme.border
+                                border.width: 1
+
+                                ColumnLayout {
+                                    id: chCol
+                                    anchors.left: parent.left
+                                    anchors.right: parent.right
+                                    anchors.top: parent.top
+                                    anchors.margins: 10
+                                    spacing: 6
+
+                                    RowLayout {
+                                        Layout.fillWidth: true
+                                        Label {
+                                            Layout.fillWidth: true
+                                            text: chDelegate.modelData.name || ""
+                                            color: window.theme.text
+                                            font.bold: true
+                                            font.pixelSize: 14
+                                            elide: Text.ElideRight
+                                        }
+                                        Rectangle {
+                                            width: liveLabel.implicitWidth + 14
+                                            height: 22
+                                            radius: 11
+                                            color: chDelegate.modelData.running
+                                                   ? window.theme.successSoft : window.theme.surfaceHover
+                                            Label {
+                                                id: liveLabel
+                                                anchors.centerIn: parent
+                                                text: chDelegate.modelData.running ? qsTr("LIVE") : qsTr("Off")
+                                                color: chDelegate.modelData.running
+                                                       ? window.theme.success : window.theme.textDim
+                                                font.pixelSize: 11
+                                                font.bold: true
+                                            }
+                                        }
+                                    }
+
+                                    Label {
+                                        Layout.fillWidth: true
+                                        text: qsTr("Video: %1").arg(chDelegate.modelData.videoLabel || "—")
+                                        color: window.theme.textMuted
+                                        font.pixelSize: 11
+                                        elide: Text.ElideRight
+                                    }
+                                    Label {
+                                        Layout.fillWidth: true
+                                        text: qsTr("Audio: %1 · Viewers %2")
+                                              .arg(chDelegate.modelData.audioLabel || "—")
+                                              .arg(chDelegate.modelData.viewers || 0)
+                                        color: window.theme.textMuted
+                                        font.pixelSize: 11
+                                        elide: Text.ElideRight
+                                    }
+
+                                    RowLayout {
+                                        spacing: 8
+                                        Button {
+                                            text: chDelegate.modelData.running ? qsTr("Stop") : qsTr("Start")
+                                            enabled: Admin.running
+                                            onClicked: {
+                                                if (chDelegate.modelData.running)
+                                                    Admin.stopChannel(chDelegate.modelData.id)
+                                                else
+                                                    Admin.startChannel(chDelegate.modelData.id)
+                                            }
+                                        }
+                                        Button {
+                                            text: qsTr("Remove")
+                                            enabled: Admin.running
+                                            onClicked: Admin.removeChannel(chDelegate.modelData.id)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        Label {
+                            visible: Admin.channels.length === 0
+                            text: Admin.running
+                                  ? qsTr("No channels yet — add one above.")
+                                  : qsTr("Start the server to manage live channels.")
+                            color: window.theme.textDim
+                            font.pixelSize: 12
                         }
                     }
                 }

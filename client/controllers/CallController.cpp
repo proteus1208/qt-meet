@@ -63,6 +63,16 @@ QString CallController::meetingTitle() const
     return m_meetingTitle;
 }
 
+QString CallController::channelName() const
+{
+    return m_channelName;
+}
+
+QVariantList CallController::channels() const
+{
+    return m_channels;
+}
+
 QString CallController::peerName() const
 {
     return m_peerName;
@@ -133,10 +143,20 @@ void CallController::setScreenSharing(bool enabled)
     if (m_engine) {
         m_engine->setScreenSharing(enabled);
         const bool actual = m_engine->isScreenSharing();
-        if (m_screenSharing == actual)
-            return;
-        m_screenSharing = actual;
-        Q_EMIT screenSharingChanged();
+        if (m_screenSharing != actual) {
+            m_screenSharing = actual;
+            Q_EMIT screenSharingChanged();
+        }
+        // Keep video-source combo in sync when toggle button is used.
+        for (int i = 0; i < m_videoSources.size(); ++i) {
+            const bool isScreen = m_videoSources.at(i).kind == SourceKind::Screen;
+            if (actual == isScreen && m_videoIndex != i) {
+                m_videoIndex = i;
+                Q_EMIT deviceSelectionChanged();
+                break;
+            }
+        }
+        postMediaState();
         return;
     }
     if (m_screenSharing == enabled)
@@ -145,11 +165,43 @@ void CallController::setScreenSharing(bool enabled)
     Q_EMIT screenSharingChanged();
 }
 
-QStringList CallController::cameraDevices() const
+qreal CallController::micVolume() const
+{
+    return m_micVolume;
+}
+
+void CallController::setMicVolume(qreal volume)
+{
+    volume = qBound(0.0, volume, 1.0);
+    if (qFuzzyCompare(m_micVolume, volume))
+        return;
+    m_micVolume = volume;
+    if (m_engine)
+        m_engine->setMicVolume(volume);
+    Q_EMIT micVolumeChanged();
+}
+
+qreal CallController::speakerVolume() const
+{
+    return m_speakerVolume;
+}
+
+void CallController::setSpeakerVolume(qreal volume)
+{
+    volume = qBound(0.0, volume, 1.0);
+    if (qFuzzyCompare(m_speakerVolume, volume))
+        return;
+    m_speakerVolume = volume;
+    if (m_engine)
+        m_engine->setSpeakerVolume(volume);
+    Q_EMIT speakerVolumeChanged();
+}
+
+QStringList CallController::videoDevices() const
 {
     QStringList names;
-    names.reserve(m_cameras.size());
-    for (const SourceSpec &spec : m_cameras)
+    names.reserve(m_videoSources.size());
+    for (const SourceSpec &spec : m_videoSources)
         names.append(spec.displayName.isEmpty() ? spec.location : spec.displayName);
     return names;
 }
@@ -168,18 +220,26 @@ QStringList CallController::speakerDevices() const
     return m_speakerNames;
 }
 
-int CallController::cameraIndex() const
+int CallController::videoIndex() const
 {
-    return m_cameraIndex;
+    return m_videoIndex;
 }
 
-void CallController::setCameraIndex(int index)
+void CallController::setVideoIndex(int index)
 {
-    if (index < 0 || index >= m_cameras.size() || index == m_cameraIndex)
+    if (index < 0 || index >= m_videoSources.size() || index == m_videoIndex)
         return;
-    m_cameraIndex = index;
+    m_videoIndex = index;
+    const SourceSpec &spec = m_videoSources.at(index);
     if (m_engine)
-        m_engine->setCamera(m_cameras.at(index));
+        m_engine->setCamera(spec);
+    const bool sharing = spec.kind == SourceKind::Screen;
+    if (m_screenSharing != sharing) {
+        m_screenSharing = sharing;
+        Q_EMIT screenSharingChanged();
+    }
+    if (sharing && !m_cameraEnabled)
+        setCameraEnabled(true);
     Q_EMIT deviceSelectionChanged();
 }
 
@@ -213,9 +273,83 @@ void CallController::setSpeakerIndex(int index)
     Q_EMIT deviceSelectionChanged();
 }
 
+int CallController::bandwidthIndex() const
+{
+    return m_bandwidthIndex;
+}
+
+void CallController::setBandwidthIndex(int index)
+{
+    if (index < 0 || index > 3 || index == m_bandwidthIndex)
+        return;
+    m_bandwidthIndex = index;
+    applyBandwidth();
+    if (m_state == State::Watching)
+        postChannelBandwidth();
+    else
+        postMediaState();
+    Q_EMIT bandwidthChanged();
+}
+
+QStringList CallController::bandwidthLabels() const
+{
+    return {
+        QStringLiteral("Low — 640×360 @ 10 fps (500 kbps)"),
+        QStringLiteral("Medium — 854×480 @ 15 fps (1.2 Mbps)"),
+        QStringLiteral("High — 1280×720 @ 24 fps (2.5 Mbps)"),
+        QStringLiteral("Ultra — 1280×720 @ 30 fps (4 Mbps)"),
+    };
+}
+
+int CallController::bandwidthKbps() const
+{
+    return bandwidthKbpsForIndex(m_bandwidthIndex);
+}
+
+int CallController::bandwidthKbpsForIndex(int index)
+{
+    switch (index) {
+    case 0:
+        return 500;
+    case 2:
+        return 2500;
+    case 3:
+        return 4000;
+    case 1:
+    default:
+        return 1200;
+    }
+}
+
+void CallController::applyBandwidth()
+{
+    if (!m_engine)
+        return;
+    // Drive the full profile (WxH / fps / audio bitrate) from the selected tier.
+    m_engine->setTargetVideoBitrate(bandwidthKbps() * 1000);
+}
+
+void CallController::postChannelBandwidth()
+{
+    if (m_sessionId.isEmpty() || !m_session->loggedIn() || m_state != State::Watching)
+        return;
+    proto::Envelope env = EnvelopeFactory::request();
+    auto *req = env.mutable_channel_bandwidth();
+    req->set_channel_id(m_sessionId.toStdString());
+    req->set_bandwidth_kbps(uint32_t(bandwidthKbps()));
+    m_network->post(env);
+}
+
 void CallController::refreshDevices()
 {
-    m_cameras = MediaSource::enumerateCameras();
+    m_videoSources = MediaSource::enumerateCameras();
+    const SourceSpec screen = MediaSource::defaultScreen();
+    if (!screen.location.isEmpty()) {
+        SourceSpec labeled = screen;
+        if (labeled.displayName.isEmpty())
+            labeled.displayName = QStringLiteral("Entire screen");
+        m_videoSources.append(labeled);
+    }
     m_microphones = MediaSource::enumerateMicrophones();
 
     m_speakerIds.clear();
@@ -223,11 +357,12 @@ void CallController::refreshDevices()
     const auto outputs = QMediaDevices::audioOutputs();
     for (const QAudioDevice &dev : outputs) {
         m_speakerIds.append(QString::fromUtf8(dev.id()));
-        m_speakerNames.append(dev.description());
+        m_speakerNames.append(dev.description().isEmpty() ? QStringLiteral("System output")
+                                                          : dev.description());
     }
 
-    if (m_cameraIndex < 0 || m_cameraIndex >= m_cameras.size())
-        m_cameraIndex = 0;
+    if (m_videoIndex < 0 || m_videoIndex >= m_videoSources.size())
+        m_videoIndex = 0;
     if (m_microphoneIndex < 0 || m_microphoneIndex >= m_microphones.size())
         m_microphoneIndex = 0;
     if (m_speakerIndex < 0 || m_speakerIndex >= m_speakerIds.size())
@@ -242,13 +377,16 @@ void CallController::applySelectedDevices()
 {
     if (!m_engine)
         return;
-    if (m_cameraIndex >= 0 && m_cameraIndex < m_cameras.size())
-        m_engine->setCamera(m_cameras.at(m_cameraIndex));
+    if (m_videoIndex >= 0 && m_videoIndex < m_videoSources.size())
+        m_engine->setCamera(m_videoSources.at(m_videoIndex));
     if (m_microphoneIndex >= 0 && m_microphoneIndex < m_microphones.size())
         m_engine->setMicrophone(m_microphones.at(m_microphoneIndex));
     if (m_speakerIndex >= 0 && m_speakerIndex < m_speakerIds.size())
         m_engine->setSpeakerId(m_speakerIds.at(m_speakerIndex));
     m_engine->setSpeakerEnabled(m_speakerEnabled);
+    m_engine->setMicVolume(m_micVolume);
+    m_engine->setSpeakerVolume(m_speakerVolume);
+    applyBandwidth();
 }
 
 void CallController::callUser(qint64 userId, const QString &displayName, bool video)
@@ -302,6 +440,7 @@ void CallController::acceptCall()
         m_engine->startSession(m_sessionId, true, m_video);
     flushPendingSignals();
     setState(State::InCall);
+    postMediaState();
 }
 
 void CallController::rejectCall()
@@ -328,6 +467,10 @@ void CallController::hangup()
 
     if (m_state == State::InMeeting) {
         leaveMeeting();
+        return;
+    }
+    if (m_state == State::Watching) {
+        leaveChannel();
         return;
     }
 
@@ -456,6 +599,94 @@ void CallController::leaveMeeting()
     Q_EMIT callEnded(QStringLiteral("left"));
 }
 
+void CallController::refreshChannels()
+{
+    if (!m_session->loggedIn())
+        return;
+
+    proto::Envelope env = EnvelopeFactory::request();
+    env.mutable_channel_list_req();
+
+    auto *watcher = new QFutureWatcher<proto::Envelope>(this);
+    connect(watcher, &QFutureWatcher<proto::Envelope>::finished, this, [this, watcher] {
+        watcher->deleteLater();
+        try {
+            const proto::Envelope reply = watcher->result();
+            if (reply.has_error()) {
+                Q_EMIT errorOccurred(QString::fromStdString(reply.error().message()));
+                return;
+            }
+            if (!reply.has_channel_list_res())
+                return;
+            m_channels.clear();
+            for (const auto &ch : reply.channel_list_res().channels())
+                upsertChannelInfo(ch);
+            Q_EMIT channelsChanged();
+        } catch (const std::exception &ex) {
+            Q_EMIT errorOccurred(QString::fromUtf8(ex.what()));
+        }
+    });
+    watcher->setFuture(m_network->request(env, 15000));
+}
+
+void CallController::joinChannel(const QString &channelId)
+{
+    if (!m_session->loggedIn() || m_state != State::Idle)
+        return;
+    const QString id = channelId.trimmed();
+    if (id.isEmpty())
+        return;
+
+    proto::Envelope env = EnvelopeFactory::request();
+    auto *req = env.mutable_channel_join();
+    req->set_channel_id(id.toStdString());
+    req->set_bandwidth_kbps(uint32_t(bandwidthKbps()));
+
+    auto *watcher = new QFutureWatcher<proto::Envelope>(this);
+    connect(watcher, &QFutureWatcher<proto::Envelope>::finished, this, [this, watcher] {
+        watcher->deleteLater();
+        try {
+            const proto::Envelope reply = watcher->result();
+            if (reply.has_error()) {
+                Q_EMIT errorOccurred(QString::fromStdString(reply.error().message()));
+                return;
+            }
+            if (reply.has_channel_joined())
+                onChannelJoined(reply.channel_joined());
+        } catch (const std::exception &ex) {
+            Q_EMIT errorOccurred(QString::fromUtf8(ex.what()));
+        }
+    });
+    watcher->setFuture(m_network->request(env, 15000));
+}
+
+void CallController::leaveChannel()
+{
+    if (m_state != State::Watching)
+        return;
+
+    if (!m_sessionId.isEmpty() && m_session->loggedIn()) {
+        proto::Envelope env = EnvelopeFactory::request();
+        env.mutable_channel_leave()->set_channel_id(m_sessionId.toStdString());
+        m_network->post(env);
+    }
+    if (m_engine)
+        m_engine->stopSession();
+    m_participants->clear();
+    m_pendingSignals.clear();
+    m_sessionId.clear();
+    m_channelName.clear();
+    m_channelPublisher = 0;
+    setState(State::Idle);
+    Q_EMIT channelChanged();
+    Q_EMIT callEnded(QStringLiteral("left-channel"));
+}
+
+void CallController::setChannelBandwidth(int bandwidthIndex)
+{
+    setBandwidthIndex(bandwidthIndex);
+}
+
 void CallController::attachVideoSink(qint64 userId, QVideoSink *sink)
 {
     if (m_engine)
@@ -500,6 +731,12 @@ void CallController::onEvent(const proto::Envelope &envelope)
     case proto::Envelope::kMeetingJoined:
         onMeetingJoined(envelope.meeting_joined());
         break;
+    case proto::Envelope::kChannelJoined:
+        onChannelJoined(envelope.channel_joined());
+        break;
+    case proto::Envelope::kChannelEvt:
+        onChannelEvent(envelope.channel_evt());
+        break;
     case proto::Envelope::kParticipantEvt:
         onParticipantEvent(envelope.participant_evt());
         break;
@@ -520,8 +757,25 @@ void CallController::onCallInvite(const proto::CallInvite &invite)
 
     m_sessionId = QString::fromStdString(invite.call_id());
     m_peer = invite.from_user_id();
-    m_peerName = QStringLiteral("User %1").arg(m_peer);
+    m_peerName = QString::fromStdString(invite.from_display_name()).trimmed();
+    if (m_peerName.isEmpty())
+        m_peerName = QStringLiteral("User %1").arg(m_peer);
     m_video = invite.kind() == proto::CALL_VIDEO;
+
+    m_participants->clear();
+    proto::Participant local;
+    local.mutable_user()->set_id(m_session->userId());
+    local.mutable_user()->set_display_name(m_session->displayName().toStdString());
+    local.set_audio_on(true);
+    local.set_video_on(m_video);
+    m_participants->upsert(local);
+    proto::Participant remote;
+    remote.mutable_user()->set_id(m_peer);
+    remote.mutable_user()->set_display_name(m_peerName.toStdString());
+    remote.set_audio_on(true);
+    remote.set_video_on(m_video);
+    m_participants->upsert(remote);
+
     setState(State::Incoming);
     Q_EMIT incomingCall(m_peerName, m_video);
 }
@@ -546,6 +800,7 @@ void CallController::onCallAnswer(const proto::CallAnswer &answer)
             m_engine->startSession(m_sessionId, true, m_video);
         flushPendingSignals();
         setState(State::InCall);
+        postMediaState();
     }
 }
 
@@ -564,6 +819,98 @@ void CallController::onCallHangup(const proto::CallHangup &hangup)
 void CallController::onMeetingJoined(const proto::MeetingJoined &joined)
 {
     enterMeeting(joined, m_video);
+}
+
+void CallController::onChannelJoined(const proto::ChannelJoined &joined)
+{
+    if (!m_session->loggedIn())
+        return;
+
+    m_sessionId = QString::fromStdString(joined.session_id());
+    if (m_sessionId.isEmpty())
+        m_sessionId = QString::fromStdString(joined.channel_id());
+    m_channelName = QString::fromStdString(joined.name());
+    m_channelPublisher = joined.publisher_id();
+    m_micEnabled = false;
+    m_cameraEnabled = false;
+
+    proto::Participant publisher;
+    publisher.mutable_user()->set_id(m_channelPublisher);
+    publisher.mutable_user()->set_display_name(m_channelName.toStdString());
+    publisher.set_audio_on(true);
+    publisher.set_video_on(true);
+    for (const auto &t : joined.tracks())
+        *publisher.add_tracks() = t;
+
+    m_participants->setParticipants({publisher}, m_session->userId());
+
+    if (m_engine) {
+        m_engine->startSession(m_sessionId, false, false);
+        QList<proto::TrackInfo> tracks;
+        for (const auto &t : joined.tracks())
+            tracks.append(t);
+        m_engine->setRemoteTracks(m_channelPublisher, tracks);
+        flushPendingSignals();
+    }
+
+    setState(State::Watching);
+    Q_EMIT channelChanged();
+}
+
+void CallController::onChannelEvent(const proto::ChannelEvt &event)
+{
+    const QString id = QString::fromStdString(event.channel().id());
+    switch (event.change()) {
+    case proto::ChannelEvt::ADDED:
+    case proto::ChannelEvt::UPDATED:
+        upsertChannelInfo(event.channel());
+        if (m_state == State::Watching && m_sessionId == id && !event.channel().running()) {
+            leaveChannel();
+            Q_EMIT errorOccurred(QStringLiteral("Channel went offline"));
+        }
+        break;
+    case proto::ChannelEvt::REMOVED:
+        removeChannelInfo(id);
+        if (m_state == State::Watching && m_sessionId == id) {
+            leaveChannel();
+            Q_EMIT errorOccurred(QStringLiteral("Channel removed by server"));
+        }
+        break;
+    default:
+        break;
+    }
+    Q_EMIT channelsChanged();
+}
+
+void CallController::upsertChannelInfo(const proto::ChannelInfo &info)
+{
+    const QString id = QString::fromStdString(info.id());
+    QVariantMap row;
+    row.insert(QStringLiteral("id"), id);
+    row.insert(QStringLiteral("name"), QString::fromStdString(info.name()));
+    row.insert(QStringLiteral("running"), info.running());
+    row.insert(QStringLiteral("hasVideo"), info.has_video());
+    row.insert(QStringLiteral("hasAudio"), info.has_audio());
+    row.insert(QStringLiteral("videoLabel"), QString::fromStdString(info.video_label()));
+    row.insert(QStringLiteral("audioLabel"), QString::fromStdString(info.audio_label()));
+
+    for (int i = 0; i < m_channels.size(); ++i) {
+        if (m_channels.at(i).toMap().value(QStringLiteral("id")).toString() == id) {
+            m_channels[i] = row;
+            return;
+        }
+    }
+    m_channels.append(row);
+}
+
+void CallController::removeChannelInfo(const QString &channelId)
+{
+    for (int i = 0; i < m_channels.size(); ++i) {
+        if (m_channels.at(i).toMap().value(QStringLiteral("id")).toString() == channelId) {
+            m_channels.removeAt(i);
+            return;
+        }
+    }
 }
 
 void CallController::onParticipantEvent(const proto::ParticipantEvt &event)
@@ -616,12 +963,13 @@ void CallController::postMediaState()
     if (m_sessionId.isEmpty() || !m_session->loggedIn())
         return;
     if (m_state != State::InCall && m_state != State::InMeeting)
-        return;
+        return; // Watching uses ChannelBandwidth instead.
     proto::Envelope env = EnvelopeFactory::request();
     auto *state = env.mutable_media_state();
     state->set_session_id(m_sessionId.toStdString());
     state->set_audio_on(m_micEnabled);
     state->set_video_on(m_cameraEnabled);
+    state->set_bandwidth_kbps(uint32_t(bandwidthKbps()));
     m_network->post(env);
 }
 
@@ -646,6 +994,7 @@ void CallController::enterMeeting(const proto::MeetingJoined &joined, bool video
 
     if (m_engine) {
         applySelectedDevices();
+        applyBandwidth();
         m_engine->startSession(m_sessionId, true, video && m_cameraEnabled);
         for (const auto &p : joined.participants()) {
             if (p.user().id() == m_session->userId())
@@ -659,6 +1008,7 @@ void CallController::enterMeeting(const proto::MeetingJoined &joined, bool video
     }
 
     setState(State::InMeeting);
+    postMediaState();
     Q_EMIT meetingChanged();
 }
 
