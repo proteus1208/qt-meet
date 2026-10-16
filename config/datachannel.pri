@@ -1,12 +1,20 @@
 # libdatachannel (WebRTC transport).
-# Override with env DATACHANNEL_DIR = prefix containing include/ and lib/.
+# Override with env DATACHANNEL_DIR = MinGW prefix (include/ + lib/ + bin/).
 #
-# Qt MinGW MUST use a MinGW-built DLL (e.g. C:/libs/libdatachannel-mingw64).
-# UCRT builds (C:/libs/libdatachannel, D:/libs/libdatachannel) cause nanosleep64.
+# Qt MinGW cannot load UCRT-built DLLs (error: nanosleep64).
+# Reject known UCRT install paths. Prefer *-mingw64 / *-qtmingw only.
 
 DATACHANNEL_DIR = $$(DATACHANNEL_DIR)
 
-# Prefer MinGW installs only — never auto-pick UCRT prefixes.
+# Strip accidental UCRT prefixes even if set in the environment.
+win32:!isEmpty(DATACHANNEL_DIR) {
+    DATACHANNEL_DIR_NORM = $$replace(DATACHANNEL_DIR, \\\\, /)
+    contains(DATACHANNEL_DIR_NORM, .*/libs/libdatachannel$)|equals(DATACHANNEL_DIR_NORM, C:/libs/libdatachannel)|equals(DATACHANNEL_DIR_NORM, D:/libs/libdatachannel)|equals(DATACHANNEL_DIR_NORM, C:/libs/libdatachannel/)|equals(DATACHANNEL_DIR_NORM, D:/libs/libdatachannel/) {
+        warning("DATACHANNEL_DIR=$$DATACHANNEL_DIR looks like a UCRT install (nanosleep64). Ignoring it — use C:/libs/libdatachannel-mingw64")
+        DATACHANNEL_DIR =
+    }
+}
+
 win32:isEmpty(DATACHANNEL_DIR) {
     exists(C:/libs/libdatachannel-mingw64/include/rtc): \
         DATACHANNEL_DIR = C:/libs/libdatachannel-mingw64
@@ -32,10 +40,7 @@ isEmpty(DATACHANNEL_DIR) {
     DEFINES += QM_HAVE_DATACHANNEL
     INCLUDEPATH += $$DATACHANNEL_DIR/include
     !contains(TEMPLATE, lib) {
-        # Shared libdatachannel: link only the import lib. Do NOT add MSYS2
-        # -L.../mingw64|ucrt64/lib for OpenSSL — that pulls a foreign CRT into
-        # Qt MinGW links (_gnu_exception_handler / __emutls). Copy libssl/libcrypto
-        # DLLs next to the exe at runtime instead.
+        # Link import lib only — never -L msys2 ucrt64/mingw64 openssl (CRT clash).
         LIBS += -L$$DATACHANNEL_DIR/lib -ldatachannel
         unix: LIBS += -lssl -lcrypto
         win32: LIBS += -lws2_32 -lbcrypt
