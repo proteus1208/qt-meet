@@ -16,6 +16,19 @@ Item {
 
     readonly property Theme theme: Theme {}
 
+    function openMicMenu() {
+        Call.refreshDevices()
+        micMenu.open()
+    }
+    function openCamMenu() {
+        Call.refreshDevices()
+        camMenu.open()
+    }
+    function openSpeakerMenu() {
+        Call.refreshDevices()
+        speakerMenu.open()
+    }
+
     Rectangle {
         anchors.fill: bar
         anchors.margins: -10
@@ -27,142 +40,189 @@ Item {
 
     RowLayout {
         id: bar
-        spacing: 8
+        spacing: 10
 
-        Button {
+        // Mic: click = mute/unmute, ▾ = choose mic or system audio
+        Row {
             visible: !root.watchMode
-            text: Call.micEnabled ? qsTr("Mic on") : qsTr("Mic off")
-            checked: Call.micEnabled
-            checkable: true
-            onClicked: Call.micEnabled = !Call.micEnabled
+            spacing: 0
+
+            Button {
+                id: micBtn
+                width: 108
+                text: Call.micEnabled ? qsTr("Mic") : qsTr("Muted")
+                checked: Call.micEnabled
+                checkable: true
+                onClicked: Call.micEnabled = !Call.micEnabled
+                background: Rectangle {
+                    radius: theme.radiusSm
+                    color: Call.micEnabled ? theme.surfaceAlt : "#3F1D1D"
+                    border.color: theme.border
+                }
+            }
+            Button {
+                width: 34
+                text: "▾"
+                onClicked: root.openMicMenu()
+                background: Rectangle {
+                    radius: theme.radiusSm
+                    color: theme.surfaceHover
+                    border.color: theme.border
+                }
+                Menu {
+                    id: micMenu
+                    y: -implicitHeight - 8
+                    width: Math.max(240, micBtn.width + 34)
+                    Instantiator {
+                        model: Call.microphoneDevices
+                        delegate: MenuItem {
+                            text: modelData
+                            checked: Call.microphoneIndex === index
+                            checkable: true
+                            onTriggered: {
+                                Call.microphoneIndex = index
+                                if (!Call.micEnabled)
+                                    Call.micEnabled = true
+                            }
+                        }
+                        onObjectAdded: function(i, obj) { micMenu.insertItem(i, obj) }
+                        onObjectRemoved: function(i, obj) { micMenu.removeItem(obj) }
+                    }
+                }
+            }
         }
-        Button {
-            text: Call.speakerEnabled ? qsTr("Speaker") : qsTr("Speaker off")
-            checked: Call.speakerEnabled
-            checkable: true
-            onClicked: Call.speakerEnabled = !Call.speakerEnabled
-        }
-        Button {
+
+        // Camera: click = on/off, ▾ = choose camera or screen (no separate share button)
+        Row {
             visible: !root.watchMode
-            text: Call.cameraEnabled ? qsTr("Camera") : qsTr("Cam off")
-            checked: Call.cameraEnabled
-            checkable: true
-            onClicked: Call.cameraEnabled = !Call.cameraEnabled
+            spacing: 0
+
+            Button {
+                id: camBtn
+                width: 108
+                text: {
+                    if (!Call.cameraEnabled)
+                        return qsTr("Cam off")
+                    return Call.screenSharing ? qsTr("Screen") : qsTr("Camera")
+                }
+                checked: Call.cameraEnabled
+                checkable: true
+                onClicked: Call.cameraEnabled = !Call.cameraEnabled
+                background: Rectangle {
+                    radius: theme.radiusSm
+                    color: Call.cameraEnabled ? theme.surfaceAlt : "#3F1D1D"
+                    border.color: theme.border
+                }
+            }
+            Button {
+                width: 34
+                text: "▾"
+                onClicked: root.openCamMenu()
+                background: Rectangle {
+                    radius: theme.radiusSm
+                    color: theme.surfaceHover
+                    border.color: theme.border
+                }
+                Menu {
+                    id: camMenu
+                    y: -implicitHeight - 8
+                    width: Math.max(260, camBtn.width + 34)
+                    Instantiator {
+                        model: Call.videoDevices
+                        delegate: MenuItem {
+                            text: modelData
+                            checked: Call.videoIndex === index
+                            checkable: true
+                            onTriggered: {
+                                Call.videoIndex = index
+                                if (!Call.cameraEnabled)
+                                    Call.cameraEnabled = true
+                            }
+                        }
+                        onObjectAdded: function(i, obj) { camMenu.insertItem(i, obj) }
+                        onObjectRemoved: function(i, obj) { camMenu.removeItem(obj) }
+                    }
+                }
+            }
         }
-        Button {
-            visible: !root.watchMode
-            text: Call.screenSharing ? qsTr("Stop share") : qsTr("Share screen")
-            checked: Call.screenSharing
-            checkable: true
-            onClicked: Call.screenSharing = !Call.screenSharing
+
+        // Speaker: click = mute output, ▾ = choose output device + volume
+        Row {
+            spacing: 0
+
+            Button {
+                id: speakerBtn
+                width: 108
+                text: Call.speakerEnabled ? qsTr("Speaker") : qsTr("Spk off")
+                checked: Call.speakerEnabled
+                checkable: true
+                onClicked: Call.speakerEnabled = !Call.speakerEnabled
+                background: Rectangle {
+                    radius: theme.radiusSm
+                    color: Call.speakerEnabled ? theme.surfaceAlt : "#3F1D1D"
+                    border.color: theme.border
+                }
+            }
+            Button {
+                width: 34
+                text: "▾"
+                onClicked: root.openSpeakerMenu()
+                background: Rectangle {
+                    radius: theme.radiusSm
+                    color: theme.surfaceHover
+                    border.color: theme.border
+                }
+                Menu {
+                    id: speakerMenu
+                    y: -implicitHeight - 8
+                    width: Math.max(280, speakerBtn.width + 34)
+
+                    Instantiator {
+                        model: Call.speakerDevices
+                        delegate: MenuItem {
+                            text: modelData
+                            checked: Call.speakerIndex === index
+                            checkable: true
+                            onTriggered: Call.speakerIndex = index
+                        }
+                        onObjectAdded: function(i, obj) { speakerMenu.insertItem(i, obj) }
+                        onObjectRemoved: function(i, obj) { speakerMenu.removeItem(obj) }
+                    }
+                    MenuSeparator {}
+                    MenuItem {
+                        enabled: false
+                        text: qsTr("Speaker volume  %1%").arg(Math.round(Call.speakerVolume * 100))
+                    }
+                    MenuItem {
+                        text: qsTr("Volume −")
+                        onTriggered: Call.speakerVolume = Math.max(0, Call.speakerVolume - 0.1)
+                    }
+                    MenuItem {
+                        text: qsTr("Volume +")
+                        onTriggered: Call.speakerVolume = Math.min(1, Call.speakerVolume + 0.1)
+                    }
+                    MenuSeparator {}
+                    MenuItem {
+                        enabled: false
+                        text: qsTr("Mic level  %1%").arg(Math.round(Call.micVolume * 100))
+                    }
+                    MenuItem {
+                        text: qsTr("Mic level −")
+                        onTriggered: Call.micVolume = Math.max(0, Call.micVolume - 0.1)
+                    }
+                    MenuItem {
+                        text: qsTr("Mic level +")
+                        onTriggered: Call.micVolume = Math.min(1, Call.micVolume + 0.1)
+                    }
+                }
+            }
         }
-        Button {
-            text: root.watchMode ? qsTr("Audio") : qsTr("Audio / video")
-            onClicked: deviceDialog.open()
-        }
+
         Button {
             visible: root.showLeave
             text: root.leaveText
             onClicked: root.leaveRequested()
             palette.buttonText: theme.danger
-        }
-    }
-
-    Dialog {
-        id: deviceDialog
-        title: qsTr("Devices & volume")
-        modal: true
-        parent: Overlay.overlay
-        anchors.centerIn: parent
-        standardButtons: Dialog.Close
-        width: Math.min(440, parent ? parent.width - 40 : 440)
-
-        onAboutToShow: Call.refreshDevices()
-
-        ColumnLayout {
-            spacing: 12
-            width: deviceDialog.availableWidth
-
-            Label {
-                text: qsTr("Video source")
-                font.bold: true
-            }
-            Label {
-                text: qsTr("Camera or entire screen")
-                color: theme.textMuted
-                font.pixelSize: 12
-            }
-            ComboBox {
-                Layout.fillWidth: true
-                model: Call.videoDevices
-                currentIndex: Call.videoIndex
-                enabled: count > 0
-                onActivated: function(index) { Call.videoIndex = index }
-            }
-
-            Label {
-                text: qsTr("Microphone")
-                font.bold: true
-            }
-            ComboBox {
-                Layout.fillWidth: true
-                model: Call.microphoneDevices
-                currentIndex: Call.microphoneIndex
-                enabled: count > 0
-                onActivated: function(index) { Call.microphoneIndex = index }
-            }
-            RowLayout {
-                Layout.fillWidth: true
-                Label { text: qsTr("Mic level"); Layout.preferredWidth: 90 }
-                Slider {
-                    Layout.fillWidth: true
-                    from: 0
-                    to: 1
-                    value: Call.micVolume
-                    onMoved: Call.micVolume = value
-                }
-                Label {
-                    text: Math.round(Call.micVolume * 100) + "%"
-                    Layout.preferredWidth: 40
-                    horizontalAlignment: Text.AlignRight
-                }
-            }
-
-            Label {
-                text: qsTr("Speaker (system output)")
-                font.bold: true
-            }
-            ComboBox {
-                Layout.fillWidth: true
-                model: Call.speakerDevices
-                currentIndex: Call.speakerIndex
-                enabled: count > 0
-                onActivated: function(index) { Call.speakerIndex = index }
-            }
-            RowLayout {
-                Layout.fillWidth: true
-                Label { text: qsTr("Volume"); Layout.preferredWidth: 90 }
-                Slider {
-                    Layout.fillWidth: true
-                    from: 0
-                    to: 1
-                    value: Call.speakerVolume
-                    onMoved: Call.speakerVolume = value
-                }
-                Label {
-                    text: Math.round(Call.speakerVolume * 100) + "%"
-                    Layout.preferredWidth: 40
-                    horizontalAlignment: Text.AlignRight
-                }
-            }
-
-            Label {
-                visible: Call.screenSharing
-                wrapMode: Text.Wrap
-                Layout.fillWidth: true
-                text: qsTr("Screen is your current video source. Pick a camera above to stop sharing.")
-                opacity: 0.75
-            }
         }
     }
 }

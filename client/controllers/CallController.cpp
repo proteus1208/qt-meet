@@ -395,17 +395,27 @@ void CallController::postChannelBandwidth()
 
 void CallController::refreshDevices()
 {
-    m_videoSources = MediaSource::enumerateCameras();
-    const SourceSpec screen = MediaSource::defaultScreen();
-    if (!screen.location.isEmpty()) {
-        SourceSpec labeled = screen;
-        if (labeled.displayName.isEmpty())
-            labeled.displayName = QStringLiteral("Entire screen");
-        m_videoSources.append(labeled);
+    // Video = cameras + screens (screen is just another camera source, Meet-style).
+    m_videoSources.clear();
+    for (SourceSpec cam : MediaSource::enumerateCameras()) {
+        if (!cam.displayName.startsWith(QStringLiteral("Camera")))
+            cam.displayName = QStringLiteral("Camera — %1")
+                                  .arg(cam.displayName.isEmpty() ? cam.location : cam.displayName);
+        m_videoSources.append(cam);
     }
-    // System output (WASAPI loopback / Stereo Mix) first, then real mics.
+    for (SourceSpec screen : MediaSource::enumerateScreens()) {
+        if (screen.location.isEmpty())
+            continue;
+        if (screen.displayName.isEmpty())
+            screen.displayName = QStringLiteral("Entire screen");
+        if (!screen.displayName.startsWith(QStringLiteral("Screen")))
+            screen.displayName = QStringLiteral("Screen — %1").arg(screen.displayName);
+        m_videoSources.append(screen);
+    }
+
+    // Audio = system output (as mic) first, then real microphones.
     m_microphones = MediaSource::enumerateSystemAudio();
-    for (const SourceSpec &mic : MediaSource::enumerateMicrophones()) {
+    for (SourceSpec mic : MediaSource::enumerateMicrophones()) {
         bool dup = false;
         for (const SourceSpec &existing : m_microphones) {
             if (existing.location == mic.location && existing.format == mic.format) {
@@ -413,8 +423,13 @@ void CallController::refreshDevices()
                 break;
             }
         }
-        if (!dup)
-            m_microphones.append(mic);
+        if (dup)
+            continue;
+        const QString hay = mic.displayName.toLower();
+        if (!hay.startsWith(QStringLiteral("mic")) && !hay.startsWith(QStringLiteral("system")))
+            mic.displayName = QStringLiteral("Mic — %1")
+                                  .arg(mic.displayName.isEmpty() ? mic.location : mic.displayName);
+        m_microphones.append(mic);
     }
 
     m_speakerIds.clear();

@@ -603,18 +603,18 @@ QList<SourceSpec> MediaSource::enumerateSystemAudio()
         }
     }
 #elif defined(Q_OS_WIN)
-    // Preferred: WASAPI loopback captures whatever the speakers are playing.
-    if (av_find_input_format("wasapi")) {
+    // Preferred: WASAPI loopback = whatever the speakers are playing (treat as a mic).
+    if (findDemuxer("wasapi")) {
         SourceSpec loopback;
         loopback.kind = SourceKind::Microphone;
         loopback.format = QStringLiteral("wasapi");
         loopback.location = QStringLiteral("default");
         loopback.options.insert(QStringLiteral("loopback"), QStringLiteral("1"));
-        loopback.displayName = QStringLiteral("System output (speakers)");
+        loopback.displayName = QStringLiteral("System — Speakers (loopback)");
         out.append(loopback);
     }
 
-    // Also surface classic loopback / virtual-cable dshow devices when present.
+    // Classic loopback / virtual-cable dshow devices (Stereo Mix, VB-Cable, etc.).
     const QList<SourceSpec> mics = enumerateMicrophones();
     for (const SourceSpec &mic : mics) {
         const QString hay = (mic.displayName + QLatin1Char(' ') + mic.location).toLower();
@@ -622,9 +622,26 @@ QList<SourceSpec> MediaSource::enumerateSystemAudio()
             || hay.contains(QStringLiteral("what u hear")) || hay.contains(QStringLiteral("loopback"))
             || hay.contains(QStringLiteral("cable")) || hay.contains(QStringLiteral("vb-audio"))) {
             SourceSpec sys = mic;
-            sys.displayName = QStringLiteral("System output — %1").arg(mic.displayName);
+            if (!sys.displayName.startsWith(QStringLiteral("System")))
+                sys.displayName = QStringLiteral("System — %1").arg(mic.displayName);
             out.append(sys);
         }
+    }
+
+    // Always expose at least one system-audio choice so the mic menu matches Meet-style UX.
+    if (out.isEmpty()) {
+        SourceSpec fallback;
+        fallback.kind = SourceKind::Microphone;
+        if (findDemuxer("wasapi")) {
+            fallback.format = QStringLiteral("wasapi");
+            fallback.location = QStringLiteral("default");
+            fallback.options.insert(QStringLiteral("loopback"), QStringLiteral("1"));
+        } else {
+            fallback.format = QStringLiteral("dshow");
+            fallback.location = QStringLiteral("audio=Stereo Mix");
+        }
+        fallback.displayName = QStringLiteral("System — Speakers (loopback)");
+        out.append(fallback);
     }
 #endif
     return out;
