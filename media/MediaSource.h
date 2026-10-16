@@ -1,5 +1,7 @@
 #pragma once
 
+#include <atomic>
+
 #include "MediaTypes.h"
 
 namespace qm {
@@ -46,7 +48,7 @@ private:
     AVFormatContext *m_format = nullptr;
     SourceSpec       m_spec;
     QString          m_error;
-    bool             m_interrupt = false;
+    std::atomic<bool> m_interrupt{false};
 };
 
 } // namespace qm

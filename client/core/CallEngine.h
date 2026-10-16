@@ -133,6 +133,7 @@ private:
     int                              m_videoLowTrack = -1;
     QElapsedTimer                    m_videoPaceTimer;
     qint64                           m_nextVideoSendMs = 0;
+    qint64                           m_videoPts = 0;
     QHash<int, RemoteStream *>       m_remoteByTrack;
     QHash<quint32, UserId>           m_ssrcToUser;
     QHash<UserId, QPointer<QVideoSink>> m_remoteSinks;

@@ -150,6 +150,7 @@ bool CallEngine::startSession(const QString &sessionId, bool audio, bool video)
 
     m_videoPaceTimer.start();
     m_nextVideoSendMs = 0;
+    m_videoPts = 0;
 
     qCInfo(lcRtc) << "CallEngine session" << sessionId << "audio" << audio << "video" << video
                    << "profile" << m_profile.width << "x" << m_profile.height << "@" << m_profile.fps
@@ -659,6 +660,10 @@ void CallEngine::onCapturedVideo(const FrameRef &frame)
     FrameRef sendFrame = scaleVideoFrame(frame);
     if (!sendFrame)
         return;
+
+    if (sendFrame->pts == AV_NOPTS_VALUE)
+        sendFrame->pts = m_videoPts;
+    m_videoPts = sendFrame->pts + 1;
 
     if (m_videoEncoder->send(sendFrame.get()) != MediaResult::Ok)
         return;

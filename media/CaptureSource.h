@@ -51,6 +51,7 @@ private:
     void stopAudio();
     void startVideo();
     void startAudio();
+    void joinThread(QThread *&thread, CaptureWorker *&worker, const char *label);
 
     SourceSpec           m_videoSpec;
     SourceSpec           m_audioSpec;

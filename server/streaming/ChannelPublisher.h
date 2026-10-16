@@ -70,6 +70,7 @@ private:
     bool                         m_running = false;
     QElapsedTimer                m_videoPaceTimer;
     qint64                       m_nextVideoSendMs = 0;
+    qint64                       m_videoPts = 0;
     quint32                      m_videoTs = 0;
     quint32                      m_audioTs = 0;
 };

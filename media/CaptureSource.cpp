@@ -32,6 +32,14 @@ public:
         m_policy = policy;
     }
 
+    /// Thread-safe: call from any thread to unblock gdigrab / dshow I/O.
+    void requestStop()
+    {
+        QMutexLocker locker(&m_mutex);
+        m_stop = true;
+        m_source.interrupt();
+    }
+
 public Q_SLOTS:
     void start()
     {
@@ -67,9 +75,7 @@ public Q_SLOTS:
 
     void stop()
     {
-        QMutexLocker locker(&m_mutex);
-        m_stop = true;
-        m_source.interrupt();
+        requestStop();
     }
 
 Q_SIGNALS:
@@ -249,30 +255,44 @@ SourceSpec CaptureSource::audioSpec() const
     return m_audioSpec;
 }
 
+void CaptureSource::joinThread(QThread *&thread, CaptureWorker *&worker, const char *label)
+{
+    if (!thread)
+        return;
+
+    // loop() blocks the worker thread event loop, so QueuedConnection stop never runs.
+    // Interrupt FFmpeg I/O directly from this thread.
+    if (worker)
+        worker->requestStop();
+
+    thread->quit();
+    for (int i = 0; i < 80 && thread->isRunning(); ++i) {
+        if (worker)
+            worker->requestStop();
+        if (thread->wait(100))
+            break;
+    }
+    if (thread->isRunning()) {
+        qCWarning(lcMedia) << label << "capture thread still running; terminating";
+        thread->terminate();
+        thread->wait(2000);
+    }
+
+    // Never parent QThread to CaptureSource — ~QObject would destroy it while running.
+    thread->setParent(nullptr);
+    delete thread;
+    thread = nullptr;
+    worker = nullptr; // deleted via finished → deleteLater (or already gone after terminate)
+}
+
 void CaptureSource::stopVideo()
 {
-    if (m_videoWorker)
-        QMetaObject::invokeMethod(m_videoWorker, "stop", Qt::QueuedConnection);
-    if (m_videoThread) {
-        m_videoThread->quit();
-        m_videoThread->wait(3000);
-        m_videoThread->deleteLater();
-        m_videoThread = nullptr;
-        m_videoWorker = nullptr;
-    }
+    joinThread(m_videoThread, m_videoWorker, "video");
 }
 
 void CaptureSource::stopAudio()
 {
-    if (m_audioWorker)
-        QMetaObject::invokeMethod(m_audioWorker, "stop", Qt::QueuedConnection);
-    if (m_audioThread) {
-        m_audioThread->quit();
-        m_audioThread->wait(3000);
-        m_audioThread->deleteLater();
-        m_audioThread = nullptr;
-        m_audioWorker = nullptr;
-    }
+    joinThread(m_audioThread, m_audioWorker, "audio");
 }
 
 void CaptureSource::startVideo()
@@ -287,7 +307,8 @@ void CaptureSource::startVideo()
     qCInfo(lcMedia) << "startVideo" << m_videoSpec.format << m_videoSpec.location
                     << m_videoSpec.displayName << "preview" << (m_preview != nullptr);
 
-    m_videoThread = new QThread(this);
+    m_videoThread = new QThread; // no parent — joined explicitly in stopVideo()
+    m_videoThread->setObjectName(QStringLiteral("CaptureVideo"));
     m_videoWorker = new CaptureWorker(true);
     m_videoWorker->configure(m_videoSpec, HwPolicy::SoftwareOnly);
     m_videoWorker->moveToThread(m_videoThread);
@@ -323,7 +344,8 @@ void CaptureSource::startAudio()
     if (m_audioThread || m_audioSpec.location.isEmpty() || !m_audioEnabled)
         return;
 
-    m_audioThread = new QThread(this);
+    m_audioThread = new QThread;
+    m_audioThread->setObjectName(QStringLiteral("CaptureAudio"));
     m_audioWorker = new CaptureWorker(false);
     m_audioWorker->configure(m_audioSpec, HwPolicy::SoftwareOnly);
     m_audioWorker->moveToThread(m_audioThread);

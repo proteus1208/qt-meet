@@ -134,7 +134,7 @@ bool MediaSource::open(const SourceSpec &spec)
     ensureFfmpeg();
     close();
     m_spec = spec;
-    m_interrupt = false;
+    m_interrupt.store(false);
     m_error.clear();
 
     AVDictionary *opts = nullptr;
@@ -268,7 +268,7 @@ bool MediaSource::seek(qint64 positionUs)
 
 void MediaSource::interrupt()
 {
-    m_interrupt = true;
+    m_interrupt.store(true);
 }
 
 QList<StreamInfo> MediaSource::streams() const
@@ -344,7 +344,7 @@ QString MediaSource::lastError() const
 int MediaSource::interruptCallback(void *opaque)
 {
     auto *self = static_cast<MediaSource *>(opaque);
-    return self && self->m_interrupt ? 1 : 0;
+    return self && self->m_interrupt.load() ? 1 : 0;
 }
 
 namespace {

@@ -72,6 +72,7 @@ bool ChannelPublisher::start()
 
     m_videoPaceTimer.start();
     m_nextVideoSendMs = 0;
+    m_videoPts = 0;
     m_running = true;
     Q_EMIT runningChanged(true);
     qCInfo(lcRtc) << "ChannelPublisher started" << m_channelId
@@ -248,6 +249,11 @@ void ChannelPublisher::onVideo(const FrameRef &frame)
     FrameRef sendFrame = scaleVideoFrame(frame);
     if (!sendFrame)
         return;
+
+    // gdigrab/BMP often has no PTS; h264_mf requires timestamps (MF_E_NO_SAMPLE_TIMESTAMP).
+    if (sendFrame->pts == AV_NOPTS_VALUE)
+        sendFrame->pts = m_videoPts;
+    m_videoPts = sendFrame->pts + 1;
 
     if (m_videoEncoder->send(sendFrame.get()) != MediaResult::Ok)
         return;

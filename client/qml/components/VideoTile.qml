@@ -12,6 +12,14 @@ Rectangle {
     property bool isLocal: false
     property bool screenShare: false
     property alias videoSink: output.videoSink
+    /// Width / height of the current frame (16:9 until the first frame arrives).
+    readonly property real contentAspect: {
+        const w = output.sourceRect.width
+        const h = output.sourceRect.height
+        if (w > 0 && h > 0)
+            return w / h
+        return 16 / 9
+    }
 
     readonly property Theme theme: Theme {}
 
@@ -25,7 +33,8 @@ Rectangle {
         id: output
         anchors.fill: parent
         anchors.margins: 1
-        fillMode: VideoOutput.PreserveAspectCrop
+        // Keep correct frame ratio (letterbox/pillarbox); do not crop ultrawide screens.
+        fillMode: VideoOutput.PreserveAspectFit
     }
 
     Rectangle {

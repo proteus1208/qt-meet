@@ -54,7 +54,8 @@ Page {
     VideoTile {
         id: localTile
         width: Math.min(240, page.width * 0.28)
-        height: width * 9 / 16
+        // Match the real frame ratio (ultrawide screens are not 16:9).
+        height: Math.max(90, width / Math.max(0.2, contentAspect))
         anchors.right: parent.right
         anchors.bottom: controls.top
         anchors.margins: 16
