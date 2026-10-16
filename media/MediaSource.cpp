@@ -1,8 +1,20 @@
 #include "MediaSource.h"
 
+#include <cstring>
+
 #include <QByteArray>
+#include <QCoreApplication>
+#include <QDir>
 #include <QMutex>
 #include <QMutexLocker>
+#include <QStringList>
+
+#if defined(Q_OS_WIN)
+#  ifndef WIN32_LEAN_AND_MEAN
+#    define WIN32_LEAN_AND_MEAN
+#  endif
+#  include <windows.h>
+#endif
 
 extern "C" {
 #include <libavdevice/avdevice.h>
@@ -21,28 +33,79 @@ namespace {
 QMutex g_ffmpegInitMutex;
 bool g_ffmpegInitialized = false;
 
+#if defined(Q_OS_WIN)
+void forceLoadAvdeviceDll()
+{
+    // Ensure avdevice-*.dll from the exe folder is loaded (same place as ffmpeg.exe's DLLs).
+    const QString dir = QCoreApplication::applicationDirPath();
+    const QStringList names = QDir(dir).entryList({QStringLiteral("avdevice-*.dll")}, QDir::Files);
+    for (const QString &name : names) {
+        const QString path = QDir(dir).absoluteFilePath(name);
+        HMODULE mod = LoadLibraryW(reinterpret_cast<LPCWSTR>(path.utf16()));
+        if (mod) {
+            using RegisterFn = void (*)();
+            if (auto fn = reinterpret_cast<RegisterFn>(GetProcAddress(mod, "avdevice_register_all"))) {
+                fn();
+                qCInfo(lcMedia) << "Called avdevice_register_all via" << name;
+            }
+        } else {
+            qCWarning(lcMedia) << "LoadLibrary failed for" << path << "err" << GetLastError();
+        }
+    }
+}
+
+const AVInputFormat *findDemuxer(const char *name)
+{
+    if (const AVInputFormat *fmt = av_find_input_format(name))
+        return fmt;
+    void *opaque = nullptr;
+    const AVInputFormat *fmt = nullptr;
+    while ((fmt = av_demuxer_iterate(&opaque))) {
+        if (fmt->name && strcmp(fmt->name, name) == 0)
+            return fmt;
+    }
+    return nullptr;
+}
+
+bool demuxerListed(const char *name)
+{
+    return findDemuxer(name) != nullptr;
+}
+#endif
+
 void ensureFfmpeg()
 {
     QMutexLocker locker(&g_ffmpegInitMutex);
     if (g_ffmpegInitialized)
         return;
     avformat_network_init();
-    // Always register devices when the symbol exists (older FFmpeg). Newer builds
-    // register at load time if libavdevice was linked — still probe for gdigrab.
 #if LIBAVDEVICE_VERSION_INT < AV_VERSION_INT(59, 0, 100)
     avdevice_register_all();
 #endif
 #if defined(Q_OS_WIN)
-    const bool hasGdigrab = av_find_input_format("gdigrab") != nullptr;
-    const bool hasDdagrab = av_find_input_format("ddagrab") != nullptr;
-    const bool hasDshow = av_find_input_format("dshow") != nullptr;
+    forceLoadAvdeviceDll();
+    // Touch avdevice so the import lib is definitely loaded before probing.
+    (void)avdevice_version();
+
+    const bool hasGdigrab = demuxerListed("gdigrab");
+    const bool hasDdagrab = demuxerListed("ddagrab");
+    const bool hasDshow = demuxerListed("dshow");
+    QStringList sample;
+    void *opaque = nullptr;
+    const AVInputFormat *fmt = nullptr;
+    while ((fmt = av_demuxer_iterate(&opaque)) && sample.size() < 12) {
+        if (fmt->name)
+            sample << QString::fromLatin1(fmt->name);
+    }
     qCInfo(lcMedia) << "FFmpeg devices: gdigrab" << hasGdigrab << "ddagrab" << hasDdagrab
                      << "dshow" << hasDshow
                      << "avformat" << avformat_version()
-                     << "avdevice" << avdevice_version();
+                     << "avdevice" << avdevice_version()
+                     << "demuxers" << sample.join(QLatin1Char(','));
     if (!hasGdigrab && !hasDdagrab)
-        qCWarning(lcMedia) << "No screen-grab demuxer in loaded FFmpeg — copy your "
-                              "FFMPEG_DIR\\bin\\*.dll next to the exe (not Qt's FFmpeg)";
+        qCWarning(lcMedia) << "No screen-grab demuxer — put FFMPEG_DIR\\bin\\av*.dll next to"
+                              << QCoreApplication::applicationFilePath()
+                              << "(same folder as the .exe, not the parent folder)";
 #endif
     g_ffmpegInitialized = true;
 }
@@ -87,11 +150,20 @@ bool MediaSource::open(const SourceSpec &spec)
 
     const AVInputFormat *iformat = nullptr;
     if (!spec.format.isEmpty()) {
-        iformat = av_find_input_format(spec.format.toUtf8().constData());
+        const QByteArray fmtName = spec.format.toUtf8();
+#if defined(Q_OS_WIN)
+        iformat = findDemuxer(fmtName.constData());
+#else
+        iformat = av_find_input_format(fmtName.constData());
+#endif
         if (!iformat) {
             // Prefer DXGI grab when present (FFmpeg 6+), else report missing gdigrab.
             if (spec.kind == SourceKind::Screen) {
+#if defined(Q_OS_WIN)
+                iformat = findDemuxer("ddagrab");
+#else
                 iformat = av_find_input_format("ddagrab");
+#endif
                 if (iformat)
                     qCInfo(lcMedia) << "Using ddagrab instead of" << spec.format;
             }
@@ -472,10 +544,10 @@ SourceSpec MediaSource::defaultScreen()
     screen.displayName = QStringLiteral("Entire screen");
 #if defined(Q_OS_WIN)
     // Prefer gdigrab; fall back to ddagrab (DXGI) on newer FFmpeg builds.
-    if (av_find_input_format("gdigrab")) {
+    if (findDemuxer("gdigrab")) {
         screen.format = QStringLiteral("gdigrab");
         screen.location = QStringLiteral("desktop");
-    } else if (av_find_input_format("ddagrab")) {
+    } else if (findDemuxer("ddagrab")) {
         screen.format = QStringLiteral("ddagrab");
         screen.location = QStringLiteral("0");
     } else {
