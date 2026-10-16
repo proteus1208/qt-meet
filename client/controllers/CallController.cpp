@@ -400,7 +400,19 @@ void CallController::refreshDevices()
             labeled.displayName = QStringLiteral("Entire screen");
         m_videoSources.append(labeled);
     }
-    m_microphones = MediaSource::enumerateMicrophones();
+    // System output (WASAPI loopback / Stereo Mix) first, then real mics.
+    m_microphones = MediaSource::enumerateSystemAudio();
+    for (const SourceSpec &mic : MediaSource::enumerateMicrophones()) {
+        bool dup = false;
+        for (const SourceSpec &existing : m_microphones) {
+            if (existing.location == mic.location && existing.format == mic.format) {
+                dup = true;
+                break;
+            }
+        }
+        if (!dup)
+            m_microphones.append(mic);
+    }
 
     m_speakerIds.clear();
     m_speakerNames.clear();
