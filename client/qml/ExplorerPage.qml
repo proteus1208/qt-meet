@@ -22,8 +22,8 @@ Page {
             qsTr("All files (*)")
         ]
         onAccepted: {
-            Explorer.openMedia(selectedFile)
             page.StackView.view.push(Qt.resolvedUrl("PlayerPage.qml"))
+            Explorer.openMedia(selectedFile)
         }
     }
 
@@ -121,8 +121,8 @@ Page {
                     text: qsTr("Play")
                     flat: true
                     onClicked: {
-                        Explorer.openEntry(index)
                         page.StackView.view.push(Qt.resolvedUrl("PlayerPage.qml"))
+                        Explorer.openEntry(index)
                     }
                 }
             }

@@ -39,7 +39,30 @@ Page {
         id: videoOutput
         anchors.fill: parent
         anchors.bottomMargin: controls.height
-        Component.onCompleted: Explorer.player.videoSink = videoOutput.videoSink
+        Component.onCompleted: {
+            // Bind the sink before play so the first video frames are not dropped.
+            Explorer.player.videoSink = videoOutput.videoSink
+            page.tryPlay()
+        }
+        Component.onDestruction: {
+            if (Explorer.player.videoSink === videoOutput.videoSink)
+                Explorer.player.videoSink = null
+        }
+    }
+
+    function tryPlay() {
+        if (Explorer.player.videoSink !== videoOutput.videoSink)
+            return
+        if (Explorer.player.source.toString().length === 0)
+            return
+        if (!Explorer.player.playing)
+            Explorer.player.play()
+    }
+
+    Connections {
+        target: Explorer.player
+        function onSourceChanged() { page.tryPlay() }
+        function onVideoSinkChanged() { page.tryPlay() }
     }
 
     Label {

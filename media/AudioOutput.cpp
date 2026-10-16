@@ -39,7 +39,9 @@ bool AudioOutput::open(int sampleRate, int channels, const QAudioDevice &device)
         m_channels = format.channelCount();
     }
 
-    m_sink = new QAudioSink(dev, format, this);
+    // Do not parent the sink to this QObject: MediaPlayer may call open() from a
+    // worker thread while AudioOutput still has GUI-thread affinity.
+    m_sink = new QAudioSink(dev, format);
     m_io = m_sink->start();
     if (!m_io) {
         qCWarning(lcMedia) << "AudioOutput failed to start";
@@ -53,7 +55,7 @@ void AudioOutput::close()
 {
     if (m_sink) {
         m_sink->stop();
-        m_sink->deleteLater();
+        delete m_sink;
         m_sink = nullptr;
     }
     m_io = nullptr;

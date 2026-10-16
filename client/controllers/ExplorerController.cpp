@@ -218,8 +218,9 @@ void ExplorerController::openMedia(const QUrl &url)
 {
     if (!m_player || url.isEmpty())
         return;
+    // Only set the source here. PlayerPage attaches VideoOutput's sink then calls play();
+    // starting earlier drops every video frame (sink is null) while audio keeps running → black picture.
     m_player->setSource(url);
-    m_player->play();
     Q_EMIT playRequested(url.fileName().isEmpty() ? url.toString() : url.fileName());
 }
 

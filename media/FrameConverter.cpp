@@ -61,7 +61,7 @@ QVideoFrame FrameConverter::toVideoFrame(const AVFrame *frame)
     FrameRef converted;
     int format = frame->format;
 
-    // Download / convert HW or exotic formats to YUV420P.
+    // D3D11VA / VAAPI / … and exotic software formats → system YUV420P for QVideoFrame.
     const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(AVPixelFormat(format));
     const bool hw = desc && (desc->flags & AV_PIX_FMT_FLAG_HWACCEL);
     if (hw || !isDirectlyMappable(format)) {

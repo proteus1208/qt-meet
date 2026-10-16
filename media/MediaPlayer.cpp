@@ -1,5 +1,7 @@
 #include "MediaPlayer.h"
 
+#include <memory>
+
 #include <QMetaObject>
 #include <QMutex>
 #include <QPointer>
@@ -93,13 +95,17 @@ public Q_SLOTS:
                 m_audioStream = -1;
             } else {
                 m_resampler.configure(48000, 2, AV_SAMPLE_FMT_S16);
-                m_audio.open(48000, 2);
-                m_audio.setVolume(m_volume);
+                if (!m_audio)
+                    m_audio = std::make_unique<AudioOutput>();
+                m_audio->open(48000, 2);
+                m_audio->setVolume(m_volume);
             }
         }
 
         m_durationUs = m_demux.durationUs();
         m_clock.reset(0);
+        m_clockAnchorSet = false;
+        m_convertFailLogged = false;
         Q_EMIT durationReady(m_durationUs / 1000);
         Q_EMIT positionChanged(0);
     }
@@ -111,7 +117,8 @@ public Q_SLOTS:
         m_stop = false;
         m_paused = false;
         m_clock.setPaused(false);
-        m_audio.resume();
+        if (m_audio)
+            m_audio->resume();
         if (!m_timer->isActive())
             m_timer->start();
         Q_EMIT playingChanged(true);
@@ -121,7 +128,8 @@ public Q_SLOTS:
     {
         m_paused = true;
         m_clock.setPaused(true);
-        m_audio.suspend();
+        if (m_audio)
+            m_audio->suspend();
         Q_EMIT playingChanged(false);
     }
 
@@ -148,7 +156,8 @@ public Q_SLOTS:
     void setVolume(qreal volume)
     {
         m_volume = volume;
-        m_audio.setVolume(volume);
+        if (m_audio)
+            m_audio->setVolume(volume);
     }
 
     void setVideoSink(QVideoSink *sink)
@@ -174,16 +183,23 @@ private:
         m_demux.close();
         m_videoDecoder.close();
         m_audioDecoder.close();
-        m_audio.close();
+        if (m_audio)
+            m_audio->close();
         m_resampler.reset();
         m_pendingVideo.reset();
         m_videoStream = m_audioStream = -1;
         m_durationUs = 0;
+        m_clockAnchorSet = false;
     }
 
     void pump()
     {
         if (m_stop || m_paused || !m_demux.isOpen())
+            return;
+
+        // Wait for a VideoOutput sink before decoding A/V — otherwise audio runs alone
+        // and every video frame looks "late" → permanent black picture.
+        if (m_videoStream >= 0 && !m_sink)
             return;
 
         // Present a pending video frame when due.
@@ -285,11 +301,16 @@ private:
                 continue;
             }
 
+            if (!m_audio) {
+                frame = makeFrame();
+                continue;
+            }
+
             // Pace writes if the device buffer is nearly full.
-            while (m_audio.freeBytes() < pcm.size() && !m_stop && !m_paused)
+            while (m_audio->freeBytes() < pcm.size() && !m_stop && !m_paused)
                 QThread::msleep(2);
 
-            m_audio.write(pcm);
+            m_audio->write(pcm);
             m_clock.setAudioPts(ptsUs);
             Q_EMIT positionChanged(ptsUs / 1000);
             frame = makeFrame();
@@ -301,8 +322,15 @@ private:
         if (!m_sink)
             return;
         const QVideoFrame vf = m_converter.toVideoFrame(frame);
-        if (vf.isValid())
-            m_sink->setVideoFrame(vf);
+        if (!vf.isValid()) {
+            if (!m_convertFailLogged) {
+                m_convertFailLogged = true;
+                qCWarning(lcMedia) << "Video frame convert failed (format"
+                                   << (frame ? frame->format : -1) << "); picture may stay black";
+            }
+            return;
+        }
+        m_sink->setVideoFrame(vf);
         if (!m_audioStream)
             Q_EMIT positionChanged(ptsUs / 1000);
     }
@@ -310,7 +338,7 @@ private:
     MediaSource     m_demux;
     Decoder         m_videoDecoder;
     Decoder         m_audioDecoder;
-    AudioOutput     m_audio;
+    std::unique_ptr<AudioOutput> m_audio;
     Resampler       m_resampler;
     FrameConverter  m_converter;
     MediaClock      m_clock;
@@ -327,6 +355,7 @@ private:
     bool            m_stop = true;
     bool            m_paused = false;
     bool            m_clockAnchorSet = false;
+    bool            m_convertFailLogged = false;
 };
 
 MediaPlayer::MediaPlayer(QObject *parent)
