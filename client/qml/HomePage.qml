@@ -959,32 +959,24 @@ Page {
                         }
 
                         Label {
-                            text: qsTr("Bandwidth")
-                            color: page.theme.text
-                            font.pixelSize: 12
-                            font.bold: true
-                        }
-                        Label {
-                            Layout.fillWidth: true
-                            wrapMode: Text.WordWrap
-                            color: page.theme.textMuted
-                            font.pixelSize: 11
-                            text: Call.bandwidthLabel
-                        }
-                        Slider {
-                            Layout.fillWidth: true
-                            from: Call.bandwidthMinKbps
-                            to: Call.bandwidthMaxKbps
-                            stepSize: 50
-                            value: Call.bandwidthKbps
-                            onMoved: Call.bandwidthKbps = Math.round(value)
-                        }
-                        Label {
                             Layout.fillWidth: true
                             wrapMode: Text.WordWrap
                             color: page.theme.textDim
                             font.pixelSize: 11
-                            text: qsTr("Server delivery: %1").arg(Session.transportModeLabel)
+                            text: qsTr("Server delivery: %1 · Call/meeting bitrate is set by the server.")
+                                  .arg(Session.transportModeLabel)
+                        }
+                        Label {
+                            text: qsTr("Show window hotkey")
+                            color: page.theme.text
+                            font.pixelSize: 12
+                            font.bold: true
+                        }
+                        TextField {
+                            Layout.fillWidth: true
+                            text: Shell.showHotkey
+                            placeholderText: qsTr("e.g. Ctrl+Shift+Q")
+                            onEditingFinished: Shell.showHotkey = text.trim()
                         }
 
                         Label {

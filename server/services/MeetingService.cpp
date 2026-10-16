@@ -408,6 +408,19 @@ void MeetingService::leaveRoom(const QString &roomId, UserId user, bool notifyLe
     if (roomGone && wasMeeting && m_storage)
         m_storage->closeMeeting(roomId).result();
 
+    // 1:1 call: when a peer disconnects / goes offline, hang up the remaining side.
+    if (notifyLeft && before.isCall) {
+        for (UserId member : before.members) {
+            if (member == user)
+                continue;
+            proto::Envelope env = EnvelopeFactory::event();
+            auto *hangup = env.mutable_call_hangup();
+            hangup->set_call_id(roomId.toStdString());
+            hangup->set_reason("peer_left");
+            m_sessions->sendTo(member, env);
+        }
+    }
+
     if (notifyLeft && wasMeeting) {
         proto::ParticipantEvt evt;
         evt.set_meeting_id(roomId.toStdString());

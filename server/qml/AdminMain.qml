@@ -18,6 +18,8 @@ ApplicationWindow {
     readonly property Theme theme: Theme {}
     property int currentPage: 0 // 0 Service, 1 Library, 2 Channels, 3 Users, 4 Settings
 
+    Component.onCompleted: Shell.attachWindow(window)
+
     FolderDialog {
         id: folderDialog
         title: qsTr("Select folder to host")
@@ -863,6 +865,34 @@ ApplicationWindow {
                                 stepSize: 50
                                 value: Admin.defaultMeetingBitrateKbps
                                 onMoved: Admin.defaultMeetingBitrateKbps = Math.round(value)
+                            }
+
+                            Label {
+                                Layout.topMargin: 8
+                                text: qsTr("Show window hotkey")
+                                color: window.theme.text
+                                font.pixelSize: 14
+                                font.bold: true
+                            }
+                            Label {
+                                Layout.fillWidth: true
+                                wrapMode: Text.Wrap
+                                text: qsTr("Global shortcut to bring the server window back from the tray.")
+                                color: window.theme.textMuted
+                                font.pixelSize: 12
+                            }
+                            TextField {
+                                Layout.fillWidth: true
+                                text: Shell.showHotkey
+                                placeholderText: qsTr("e.g. Ctrl+Shift+S")
+                                color: window.theme.text
+                                onEditingFinished: Shell.showHotkey = text.trim()
+                                background: Rectangle {
+                                    radius: window.theme.radiusSm
+                                    color: window.theme.surfaceAlt
+                                    border.color: window.theme.border
+                                    border.width: 1
+                                }
                             }
                         }
                     }

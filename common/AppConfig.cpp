@@ -73,6 +73,8 @@ bool AppConfig::load(const QString &path)
         s.value(QStringLiteral("defaultCallBitrateKbps"), 1200).toInt();
     m_server.defaultMeetingBitrateKbps =
         s.value(QStringLiteral("defaultMeetingBitrateKbps"), 1200).toInt();
+    m_server.showHotkey =
+        s.value(QStringLiteral("showHotkey"), QStringLiteral("Ctrl+Shift+S")).toString();
     s.endGroup();
 
     s.beginGroup(QStringLiteral("client"));
@@ -83,6 +85,8 @@ bool AppConfig::load(const QString &path)
     m_client.preferredCamera = s.value(QStringLiteral("camera")).toString();
     m_client.preferredMicrophone = s.value(QStringLiteral("microphone")).toString();
     m_client.preferredSpeaker = s.value(QStringLiteral("speaker")).toString();
+    m_client.showHotkey =
+        s.value(QStringLiteral("showHotkey"), QStringLiteral("Ctrl+Shift+Q")).toString();
     s.endGroup();
 
     if (m_server.dataDir.isEmpty()) {
@@ -114,6 +118,7 @@ bool AppConfig::save(const QString &path) const
     s.setValue(QStringLiteral("defaultChannelBitrateKbps"), m_server.defaultChannelBitrateKbps);
     s.setValue(QStringLiteral("defaultCallBitrateKbps"), m_server.defaultCallBitrateKbps);
     s.setValue(QStringLiteral("defaultMeetingBitrateKbps"), m_server.defaultMeetingBitrateKbps);
+    s.setValue(QStringLiteral("showHotkey"), m_server.showHotkey);
     s.endGroup();
 
     s.beginGroup(QStringLiteral("client"));
@@ -121,6 +126,7 @@ bool AppConfig::save(const QString &path) const
     s.setValue(QStringLiteral("tcpPort"), m_client.tcpPort);
     s.setValue(QStringLiteral("caFile"), m_client.caFile);
     s.setValue(QStringLiteral("downloadDir"), m_client.downloadDir);
+    s.setValue(QStringLiteral("showHotkey"), m_client.showHotkey);
     s.endGroup();
 
     s.sync();

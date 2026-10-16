@@ -1,6 +1,7 @@
 #include "CallController.h"
 
 #include <QAudioDevice>
+#include <QCoreApplication>
 #include <QFutureWatcher>
 #include <QMediaDevices>
 #include <QtGlobal>
@@ -29,6 +30,11 @@ CallController::CallController(NetworkClient *network, SessionController *sessio
     connect(m_session, &SessionController::sessionChanged, this, [this] {
         if (!m_session->loggedIn())
             hangup();
+    });
+    connect(QCoreApplication::instance(), &QCoreApplication::aboutToQuit, this, [this] {
+        hangup();
+        leaveMeeting();
+        leaveChannel();
     });
     if (m_engine) {
         connect(m_engine, &CallEngine::errorOccurred, this, &CallController::errorOccurred);

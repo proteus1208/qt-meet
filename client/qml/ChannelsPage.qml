@@ -73,37 +73,10 @@ Page {
         }
 
         Label {
-            text: qsTr("Bandwidth")
-            color: theme.text
-            font.pixelSize: 13
-            font.bold: true
-        }
-        Label {
             Layout.fillWidth: true
             color: theme.textMuted
             font.pixelSize: 12
-            text: Call.bandwidthLabel
-        }
-        RowLayout {
-            Layout.fillWidth: true
-            Label {
-                text: qsTr("Low")
-                color: theme.textDim
-                font.pixelSize: 11
-            }
-            Slider {
-                Layout.fillWidth: true
-                from: Call.bandwidthMinKbps
-                to: Call.bandwidthMaxKbps
-                stepSize: 50
-                value: Call.bandwidthKbps
-                onMoved: Call.bandwidthKbps = Math.round(value)
-            }
-            Label {
-                text: qsTr("High")
-                color: theme.textDim
-                font.pixelSize: 11
-            }
+            text: qsTr("Channel quality follows the server default / per-channel bitrate.")
         }
 
         Label {

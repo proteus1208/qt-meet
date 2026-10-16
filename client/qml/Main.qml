@@ -15,6 +15,8 @@ ApplicationWindow {
 
     readonly property Theme theme: Theme {}
 
+    Component.onCompleted: Shell.attachWindow(window)
+
     StackView {
         id: stack
         anchors.fill: parent

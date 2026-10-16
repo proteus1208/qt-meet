@@ -455,6 +455,9 @@ void AdminController::persistSettings()
         s.dataDir = previous.dataDir;
     // Always persist the current hosted folder (including clearing it).
     s.hostedFolder = m_server->hostedFolder();
+    // Tray hotkey is owned by DesktopShell / ini — don't clobber it here.
+    if (!previous.showHotkey.isEmpty())
+        s.showHotkey = previous.showHotkey;
     cfg.setServer(s);
     cfg.save(m_configPath);
 }

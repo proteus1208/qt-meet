@@ -27,6 +27,7 @@ struct ServerSettings
     int     defaultChannelBitrateKbps = 1200;
     int     defaultCallBitrateKbps = 1200;
     int     defaultMeetingBitrateKbps = 1200;
+    QString showHotkey = QStringLiteral("Ctrl+Shift+S");
 };
 
 struct ClientSettings
@@ -38,6 +39,7 @@ struct ClientSettings
     QString preferredCamera;
     QString preferredMicrophone;
     QString preferredSpeaker;
+    QString showHotkey = QStringLiteral("Ctrl+Shift+Q");
 };
 
 /// Aim: ini-backed application settings for server and client.

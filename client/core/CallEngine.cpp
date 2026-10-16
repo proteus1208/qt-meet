@@ -550,9 +550,12 @@ bool CallEngine::ensureVideoPipeline()
     if (m_videoTrack < 0) {
         m_videoTrack = m_peer->addTrack(RtcPeer::TrackKind::Video, QStringLiteral("video"), 0,
                                         RtcPeer::Direction::SendRecv);
+        if (m_videoTrack < 0)
+            qCWarning(lcRtc) << "Video track unavailable (build with DATACHANNEL_DIR for WebRTC send)";
     }
     if (!m_videoEncoder && !openVideoEncoder(m_profile))
-        return false;
+        qCWarning(lcRtc) << "H.264 encoder unavailable — local screen preview still works";
+
     if (!m_capture) {
         m_capture = std::make_unique<CaptureSource>(this);
         if (m_localPreview)
@@ -562,9 +565,12 @@ bool CallEngine::ensureVideoPipeline()
         connect(m_capture.get(), &CaptureSource::audioFrame, this, &CallEngine::onCapturedAudio);
         connect(m_capture.get(), &CaptureSource::errorOccurred, this, &CallEngine::errorOccurred);
         m_capture->open(activeVideoSpec(), m_microphone);
+        m_capture->setVideoEnabled(true);
+        m_capture->setAudioEnabled(m_wantAudio && m_micEnabled);
         m_capture->start();
     }
-    return m_videoTrack >= 0 && m_videoEncoder != nullptr;
+    // Allow local screen capture / preview even without WebRTC or a working encoder.
+    return true;
 }
 
 void CallEngine::applyPcmGain(AVFrame *frame, qreal gain)

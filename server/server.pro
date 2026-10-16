@@ -4,7 +4,7 @@ include(../config/libs.pri)
 TEMPLATE = app
 TARGET   = QtMeetServer
 DESTDIR  = $$QM_BIN_DIR
-QT      += core gui network sql concurrent quick qml multimedia
+QT      += core gui widgets network sql concurrent quick qml multimedia quickcontrols2
 
 qmUseLib(qmrtc)
 qmUseLib(qmmedia)

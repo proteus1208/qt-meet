@@ -97,7 +97,7 @@ Item {
                 model: Call.videoDevices
                 currentIndex: Call.videoIndex
                 enabled: count > 0
-                onActivated: Call.videoIndex = index
+                onActivated: function(index) { Call.videoIndex = index }
             }
 
             Label {
@@ -109,7 +109,7 @@ Item {
                 model: Call.microphoneDevices
                 currentIndex: Call.microphoneIndex
                 enabled: count > 0
-                onActivated: Call.microphoneIndex = index
+                onActivated: function(index) { Call.microphoneIndex = index }
             }
             RowLayout {
                 Layout.fillWidth: true
@@ -129,39 +129,6 @@ Item {
             }
 
             Label {
-                text: qsTr("Bandwidth")
-                font.bold: true
-            }
-            Label {
-                Layout.fillWidth: true
-                wrapMode: Text.Wrap
-                color: theme.textMuted
-                font.pixelSize: 12
-                text: Call.bandwidthLabel
-            }
-            RowLayout {
-                Layout.fillWidth: true
-                Label {
-                    text: qsTr("Low")
-                    color: theme.textDim
-                    font.pixelSize: 11
-                }
-                Slider {
-                    Layout.fillWidth: true
-                    from: Call.bandwidthMinKbps
-                    to: Call.bandwidthMaxKbps
-                    stepSize: 50
-                    value: Call.bandwidthKbps
-                    onMoved: Call.bandwidthKbps = Math.round(value)
-                }
-                Label {
-                    text: qsTr("High")
-                    color: theme.textDim
-                    font.pixelSize: 11
-                }
-            }
-
-            Label {
                 text: qsTr("Speaker (system output)")
                 font.bold: true
             }
@@ -170,7 +137,7 @@ Item {
                 model: Call.speakerDevices
                 currentIndex: Call.speakerIndex
                 enabled: count > 0
-                onActivated: Call.speakerIndex = index
+                onActivated: function(index) { Call.speakerIndex = index }
             }
             RowLayout {
                 Layout.fillWidth: true
