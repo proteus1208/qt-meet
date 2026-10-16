@@ -74,11 +74,13 @@ void CallEngine::setRtcConfig(const RtcConfig &config)
 
 bool CallEngine::startSession(const QString &sessionId, bool audio, bool video)
 {
+    // Keep screen-share preference across stopSession() (preview may already be running).
+    const bool wantScreenShare = m_screenSharing;
     stopSession();
     m_sessionId = sessionId;
-    m_screenSharing = false;
+    m_screenSharing = wantScreenShare;
     m_wantAudio = audio;
-    m_wantVideo = video;
+    m_wantVideo = video || wantScreenShare;
 
     if (m_camera.location.isEmpty())
         m_camera = MediaSource::defaultCamera();
@@ -104,21 +106,23 @@ bool CallEngine::startSession(const QString &sessionId, bool audio, bool video)
         if (!openAudioEncoder(m_profile))
             qCWarning(lcRtc) << "Opus encoder unavailable";
     }
-    if (video) {
+    if (m_wantVideo) {
         m_videoTrack = m_peer->addTrack(RtcPeer::TrackKind::Video, QStringLiteral("video"), 0,
                                         RtcPeer::Direction::SendRecv);
         if (!openVideoEncoder(m_profile))
             qCWarning(lcRtc) << "H.264 encoder unavailable";
+        if (wantScreenShare)
+            m_cameraEnabled = true;
     }
 
     const SourceSpec cam = activeVideoSpec();
     const SourceSpec mic = m_microphone;
-    if (audio || video) {
+    if (audio || m_wantVideo) {
         m_capture = std::make_unique<CaptureSource>(this);
         if (m_localPreview)
             m_capture->setPreviewSink(m_localPreview);
         m_capture->setOutputSize(m_profile.width, m_profile.height, m_profile.fps);
-        m_capture->setVideoEnabled(video && m_cameraEnabled);
+        m_capture->setVideoEnabled(m_wantVideo && m_cameraEnabled);
         m_capture->setAudioEnabled(audio && m_micEnabled);
         connect(m_capture.get(), &CaptureSource::videoFrame, this, &CallEngine::onCapturedVideo);
         connect(m_capture.get(), &CaptureSource::audioFrame, this, &CallEngine::onCapturedAudio);
@@ -439,22 +443,45 @@ void CallEngine::setScreenSharing(bool enabled)
     if (m_screenSharing == enabled)
         return;
 
-    // Outside an active call, only remember the preference for the next startSession().
+    // Outside an active call: still show local screen preview (e.g. while ringing).
     if (!isActive()) {
-        if (enabled && m_screen.location.isEmpty()) {
-            m_screen = MediaSource::defaultScreen();
+        if (enabled) {
+            if (m_screen.location.isEmpty())
+                m_screen = MediaSource::defaultScreen();
             if (m_screen.location.isEmpty()) {
                 Q_EMIT errorOccurred(QStringLiteral("Screen capture is not available on this platform"));
                 return;
             }
+            if (!m_capture) {
+                m_capture = std::make_unique<CaptureSource>(this);
+                connect(m_capture.get(), &CaptureSource::videoFrame, this, &CallEngine::onCapturedVideo);
+                connect(m_capture.get(), &CaptureSource::audioFrame, this, &CallEngine::onCapturedAudio);
+                connect(m_capture.get(), &CaptureSource::errorOccurred, this, &CallEngine::errorOccurred);
+            }
+            if (m_localPreview)
+                m_capture->setPreviewSink(m_localPreview);
+            m_capture->open(m_screen, {});
+            m_capture->setAudioEnabled(false);
+            if (!m_capture->reopenVideo(m_screen, true)) {
+                qCWarning(lcRtc) << "preview reopenVideo(screen) failed";
+                Q_EMIT errorOccurred(QStringLiteral("Failed to open screen capture for preview"));
+                return;
+            }
+            if (!m_capture->isRunning())
+                m_capture->start();
+            m_screenSharing = true;
+            m_cameraEnabled = true;
+            qCInfo(lcRtc) << "Screen preview started (no active call yet)" << m_screen.format
+                           << m_screen.location << "preview" << (m_localPreview != nullptr);
+        } else {
+            m_screenSharing = false;
+            if (m_capture) {
+                m_capture->stop();
+                m_capture.reset();
+            }
+            qCInfo(lcRtc) << "Screen preview stopped (no active call)";
         }
-        m_screenSharing = enabled;
         Q_EMIT screenSharingChanged(m_screenSharing);
-        if (enabled) {
-            qCWarning(lcRtc) << "Screen share armed, but no active call — local preview starts after you are in a call";
-            Q_EMIT errorOccurred(
-                QStringLiteral("Join or start a call first, then press Share screen to see preview"));
-        }
         return;
     }
 
