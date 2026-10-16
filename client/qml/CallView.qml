@@ -21,17 +21,24 @@ Page {
                 page.StackView.view.pop()
             else if (Call.peerId !== 0)
                 Call.attachVideoSink(Call.peerId, remoteTile.videoSink)
+            if (Call.state === 3 && Call.peerId !== 0)
+                Chat.openConversationWith(Call.peerId, Call.peerName || qsTr("Call"))
         }
         function onCallEnded(reason) {
             endLabel.text = qsTr("Call ended: %1").arg(reason)
+            chatPanel.open = false
         }
         function onErrorOccurred(message) {
             endLabel.text = message
         }
         function onScreenSharingChanged() {
-            // Re-bind local preview after capture device swap.
             Call.attachLocalPreview(localTile.videoSink)
         }
+    }
+
+    Component.onCompleted: {
+        if (Call.state === 3 && Call.peerId !== 0)
+            Chat.openConversationWith(Call.peerId, Call.peerName || qsTr("Call"))
     }
 
     Rectangle {
@@ -43,6 +50,7 @@ Page {
         id: remoteTile
         anchors.fill: parent
         anchors.margins: 12
+        anchors.rightMargin: chatPanel.open ? chatPanel.widthHint + 20 : 12
         anchors.bottomMargin: controls.height + 28
         displayName: Call.peerName.length ? Call.peerName : qsTr("Remote")
         Component.onCompleted: {
@@ -54,9 +62,9 @@ Page {
     VideoTile {
         id: localTile
         width: Math.min(240, page.width * 0.28)
-        // Match the real frame ratio (ultrawide screens are not 16:9).
         height: Math.max(90, width / Math.max(0.2, contentAspect))
         anchors.right: parent.right
+        anchors.rightMargin: chatPanel.open ? chatPanel.widthHint + 28 : 16
         anchors.bottom: controls.top
         anchors.margins: 16
         isLocal: true
@@ -127,11 +135,22 @@ Page {
 
     CallMediaControls {
         id: controls
+        z: 3
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.bottom
         anchors.bottomMargin: 18
         showLeave: true
+        showChat: page.inCall || page.outgoing
+        chatOpen: chatPanel.open
         leaveText: qsTr("Hang up")
         onLeaveRequested: Call.hangup()
+        onChatRequested: chatPanel.open = !chatPanel.open
+    }
+
+    InCallChatPanel {
+        id: chatPanel
+        anchors.fill: parent
+        title: Call.peerName.length ? Call.peerName : qsTr("Chat")
+        readonly property real widthHint: Math.min(360, page.width * 0.92)
     }
 }

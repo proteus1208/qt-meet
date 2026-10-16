@@ -12,20 +12,35 @@ Page {
 
     readonly property Theme theme: Theme {}
 
+    function bindMeetingChat() {
+        if (Call.meetingConversationId !== 0)
+            Chat.openConversation(Call.meetingConversationId,
+                                  Call.meetingTitle.length ? Call.meetingTitle : qsTr("Meeting"))
+    }
+
     Connections {
         target: Call
         function onStateChanged() {
-            if (Call.state === 0)
+            if (Call.state === 0) {
+                chatPanel.open = false
                 page.StackView.view.pop()
+            } else if (Call.state === 4) {
+                page.bindMeetingChat()
+            }
+        }
+        function onMeetingChanged() {
+            if (Call.state === 4)
+                page.bindMeetingChat()
         }
         function onErrorOccurred(message) {
             errorLabel.text = message
         }
         function onScreenSharingChanged() {
-            // Force local tiles to re-bind preview after capture swap.
             grid.forceLayout()
         }
     }
+
+    Component.onCompleted: page.bindMeetingChat()
 
     header: ToolBar {
         background: Rectangle { color: theme.surface }
@@ -78,6 +93,7 @@ Page {
         id: grid
         anchors.fill: parent
         anchors.margins: 10
+        anchors.rightMargin: chatPanel.open ? chatPanel.widthHint + 16 : 10
         anchors.bottomMargin: controls.height + 24
         clip: true
         cellWidth: {
@@ -139,11 +155,22 @@ Page {
 
     CallMediaControls {
         id: controls
+        z: 3
         anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.bottom
         anchors.bottomMargin: 18
         showLeave: true
+        showChat: true
+        chatOpen: chatPanel.open
         leaveText: qsTr("Leave")
         onLeaveRequested: Call.leaveMeeting()
+        onChatRequested: chatPanel.open = !chatPanel.open
+    }
+
+    InCallChatPanel {
+        id: chatPanel
+        anchors.fill: parent
+        title: Call.meetingTitle.length ? Call.meetingTitle : qsTr("Meeting chat")
+        readonly property real widthHint: Math.min(360, page.width * 0.92)
     }
 }

@@ -64,9 +64,17 @@ Page {
                 id: input
                 Layout.fillWidth: true
                 placeholderText: qsTr("Type a message")
+                onAccepted: {
+                    Chat.sendText(text)
+                    clear()
+                }
             }
             Button {
                 text: qsTr("Send")
+                onClicked: {
+                    Chat.sendText(input.text)
+                    input.clear()
+                }
             }
         }
     }

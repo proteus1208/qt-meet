@@ -28,9 +28,11 @@ class ChatController : public QObject
     Q_PROPERTY(QAbstractItemModel *messages READ messages CONSTANT)
     Q_PROPERTY(QAbstractItemModel *transfers READ transfers CONSTANT)
     Q_PROPERTY(qint64 activePeerId READ activePeerId NOTIFY activeConversationChanged)
+    Q_PROPERTY(qint64 activeConversationId READ activeConversationId NOTIFY activeConversationChanged)
     Q_PROPERTY(QString activePeerName READ activePeerName NOTIFY activeConversationChanged)
     Q_PROPERTY(int activePeerPresence READ activePeerPresence NOTIFY activePeerPresenceChanged)
     Q_PROPERTY(bool hasMoreMessages READ hasMoreMessages NOTIFY hasMoreMessagesChanged)
+    Q_PROPERTY(bool canSend READ canSend NOTIFY activeConversationChanged)
 
 public:
     ChatController(NetworkClient *network, SessionController *session, FileTransfer *files,
@@ -42,12 +44,16 @@ public:
     QAbstractItemModel *messages() const;
     QAbstractItemModel *transfers() const;
     qint64              activePeerId() const;
+    qint64              activeConversationId() const;
     QString             activePeerName() const;
     int                 activePeerPresence() const;
     bool                hasMoreMessages() const;
+    bool                canSend() const;
 
     Q_INVOKABLE void searchUsers(const QString &query);
     Q_INVOKABLE void openConversationWith(qint64 userId, const QString &displayName);
+    /// Group / meeting chat by conversation id (peer may be 0).
+    Q_INVOKABLE void openConversation(qint64 conversationId, const QString &title);
     Q_INVOKABLE void sendText(const QString &text);
     Q_INVOKABLE void sendFile(const QUrl &localFile);
     Q_INVOKABLE void loadMore();

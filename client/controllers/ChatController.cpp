@@ -53,7 +53,7 @@ ChatController::ChatController(NetworkClient *network, SessionController *sessio
 
     connect(m_files, &FileTransfer::uploaded, this,
             [this](const QString &, const proto::ChatAttachment &attachment) {
-                if (m_activePeer == 0)
+                if (!canSend())
                     return;
                 const QString clientMsgId = Ids::uuid();
                 m_messages->appendLocal(clientMsgId, {}, attachment);
@@ -93,6 +93,11 @@ qint64 ChatController::activePeerId() const
     return qint64(m_activePeer);
 }
 
+qint64 ChatController::activeConversationId() const
+{
+    return qint64(m_activeConversation);
+}
+
 QString ChatController::activePeerName() const
 {
     return m_activePeerName;
@@ -106,6 +111,12 @@ int ChatController::activePeerPresence() const
 bool ChatController::hasMoreMessages() const
 {
     return m_messages && m_messages->hasMore();
+}
+
+bool ChatController::canSend() const
+{
+    return m_session && m_session->loggedIn()
+           && (m_activeConversation != 0 || m_activePeer != 0);
 }
 
 void ChatController::searchUsers(const QString &query)
@@ -203,10 +214,57 @@ void ChatController::openConversationWith(qint64 userId, const QString &displayN
     watcher->setFuture(m_network->request(env));
 }
 
+void ChatController::openConversation(qint64 conversationId, const QString &title)
+{
+    m_activePeer = 0;
+    m_activePeerName = title.trimmed().isEmpty() ? QStringLiteral("Meeting chat") : title.trimmed();
+    m_activePeerPresence = proto::PRESENCE_OFFLINE;
+    m_activeConversation = ConversationId(conversationId);
+    m_messages->clear();
+    m_messages->setContext(m_activeConversation, m_session->userId());
+    Q_EMIT activeConversationChanged();
+    Q_EMIT activePeerPresenceChanged();
+
+    if (m_activeConversation == 0 || !m_session->loggedIn())
+        return;
+
+    proto::Envelope env = EnvelopeFactory::request();
+    auto *req = env.mutable_chat_history_req();
+    req->set_conversation_id(m_activeConversation);
+    req->set_limit(50);
+
+    auto *watcher = new QFutureWatcher<proto::Envelope>(this);
+    connect(watcher, &QFutureWatcher<proto::Envelope>::finished, this,
+            [this, watcher, conv = m_activeConversation] {
+                watcher->deleteLater();
+                if (conv != m_activeConversation)
+                    return;
+                proto::Envelope reply;
+                try {
+                    reply = watcher->result();
+                } catch (const std::exception &ex) {
+                    qCWarning(lcNet) << "Meeting history failed:" << ex.what();
+                    return;
+                }
+                if (reply.has_error() || !reply.has_chat_history_res())
+                    return;
+
+                const auto &res = reply.chat_history_res();
+                QList<proto::ChatEvt> messages;
+                messages.reserve(res.messages_size());
+                for (const proto::ChatEvt &message : res.messages())
+                    messages.append(message);
+                m_messages->prependHistory(messages, res.has_more());
+                m_conversations->markRead(m_activeConversation);
+                Q_EMIT activeConversationChanged();
+            });
+    watcher->setFuture(m_network->request(env));
+}
+
 void ChatController::sendText(const QString &text)
 {
     const QString trimmed = text.trimmed();
-    if (trimmed.isEmpty() || m_activePeer == 0 || !m_session->loggedIn())
+    if (trimmed.isEmpty() || !canSend())
         return;
 
     const QString clientMsgId = Ids::uuid();
@@ -223,7 +281,7 @@ void ChatController::sendText(const QString &text)
 
 void ChatController::sendFile(const QUrl &localFile)
 {
-    if (m_activePeer == 0 || !m_session->loggedIn())
+    if (!canSend())
         return;
     const QString path = localFile.isLocalFile() ? localFile.toLocalFile() : localFile.toString();
     if (path.isEmpty())
@@ -233,7 +291,7 @@ void ChatController::sendFile(const QUrl &localFile)
 
 void ChatController::loadMore()
 {
-    if (m_activePeer == 0 || !m_session->loggedIn() || !m_messages->hasMore())
+    if (!canSend() || !m_messages->hasMore())
         return;
 
     proto::Envelope env = EnvelopeFactory::request();
@@ -243,11 +301,13 @@ void ChatController::loadMore()
     req->set_before_message_id(m_messages->oldestMessageId());
     req->set_limit(50);
 
+    const ConversationId conv = m_activeConversation;
+    const UserId peer = m_activePeer;
     auto *watcher = new QFutureWatcher<proto::Envelope>(this);
     connect(watcher, &QFutureWatcher<proto::Envelope>::finished, this,
-            [this, watcher, peer = m_activePeer] {
+            [this, watcher, conv, peer] {
                 watcher->deleteLater();
-                if (peer != m_activePeer)
+                if (conv != m_activeConversation || peer != m_activePeer)
                     return;
                 proto::Envelope reply;
                 try {
@@ -311,9 +371,11 @@ void ChatController::onChatEvent(const proto::ChatEvt &message)
         title = m_activePeerName;
     }
 
-    const bool inActive = m_activePeer != 0
-                          && (conv == m_activeConversation
-                              || (m_activeConversation == 0 && (from == m_activePeer || fromMe)));
+    const bool inActive = (m_activeConversation != 0 && conv == m_activeConversation)
+                          || (m_activePeer != 0
+                              && (conv == m_activeConversation
+                                  || (m_activeConversation == 0
+                                      && (from == m_activePeer || fromMe))));
     if (inActive) {
         if (m_activeConversation == 0 && conv != 0)
             m_activeConversation = conv;
@@ -324,7 +386,7 @@ void ChatController::onChatEvent(const proto::ChatEvt &message)
     }
 
     if (title.isEmpty())
-        title = QStringLiteral("Chat");
+        title = m_activePeerName.isEmpty() ? QStringLiteral("Chat") : m_activePeerName;
     const bool unread = !fromMe && !inActive;
     m_conversations->upsertFromMessage(message, title, peer, unread);
 

@@ -29,6 +29,7 @@ class CallController : public QObject
     Q_PROPERTY(QAbstractItemModel *participants READ participants CONSTANT)
     Q_PROPERTY(QString meetingCode READ meetingCode NOTIFY meetingChanged)
     Q_PROPERTY(QString meetingTitle READ meetingTitle NOTIFY meetingChanged)
+    Q_PROPERTY(qint64 meetingConversationId READ meetingConversationId NOTIFY meetingChanged)
     Q_PROPERTY(QString channelName READ channelName NOTIFY channelChanged)
     Q_PROPERTY(QVariantList channels READ channels NOTIFY channelsChanged)
     Q_PROPERTY(QString peerName READ peerName NOTIFY stateChanged)
@@ -64,6 +65,7 @@ public:
     QAbstractItemModel *participants() const;
     QString             meetingCode() const;
     QString             meetingTitle() const;
+    qint64              meetingConversationId() const;
     QString             channelName() const;
     QVariantList        channels() const;
     QString             peerName() const;
@@ -165,6 +167,7 @@ private:
     QString            m_sessionId;           // call_id, meeting_id, or channel_id
     QString            m_meetingCode;
     QString            m_meetingTitle;
+    ConversationId     m_meetingConversationId = 0;
     QString            m_channelName;
     QVariantList       m_channels;
     UserId             m_channelPublisher = 0;

@@ -11,8 +11,11 @@ Item {
 
     property bool showLeave: false
     property bool watchMode: false
+    property bool showChat: true
+    property bool chatOpen: false
     property string leaveText: qsTr("Hang up")
     signal leaveRequested()
+    signal chatRequested()
 
     readonly property Theme theme: Theme {}
 
@@ -216,6 +219,14 @@ Item {
                     }
                 }
             }
+        }
+
+        Button {
+            visible: root.showChat && !root.watchMode
+            text: root.chatOpen ? qsTr("Hide chat") : qsTr("Chat")
+            checked: root.chatOpen
+            checkable: true
+            onClicked: root.chatRequested()
         }
 
         Button {

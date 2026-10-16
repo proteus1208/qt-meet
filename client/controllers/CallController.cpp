@@ -82,6 +82,11 @@ QString CallController::meetingTitle() const
     return m_meetingTitle;
 }
 
+qint64 CallController::meetingConversationId() const
+{
+    return qint64(m_meetingConversationId);
+}
+
 QString CallController::channelName() const
 {
     return m_channelName;
@@ -674,6 +679,7 @@ void CallController::leaveMeeting()
     m_sessionId.clear();
     m_meetingCode.clear();
     m_meetingTitle.clear();
+    m_meetingConversationId = 0;
     if (m_screenSharing) {
         m_screenSharing = false;
         Q_EMIT screenSharingChanged();
@@ -1074,6 +1080,7 @@ void CallController::enterMeeting(const proto::MeetingJoined &joined, bool video
     m_sessionId = meetingId;
     m_meetingCode = QString::fromStdString(joined.code());
     m_meetingTitle = QString::fromStdString(joined.title());
+    m_meetingConversationId = ConversationId(joined.conversation_id());
     m_video = video;
     setBandwidthKbps(m_session->defaultMeetingBitrateKbps());
 
