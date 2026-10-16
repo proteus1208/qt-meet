@@ -9,6 +9,7 @@
 
 #include "admin/AdminController.h"
 #include "common/AppConfig.h"
+#include "common/BuildMode.h"
 #include "common/DesktopShell.h"
 #include "common/Logger.h"
 #include "common/SingleInstance.h"
@@ -48,9 +49,16 @@ int main(int argc, char *argv[])
     parser.addHelpOption();
     parser.addOption({QStringLiteral("config"), QStringLiteral("Path to server ini file."), QStringLiteral("file")});
     parser.addOption({QStringLiteral("headless"), QStringLiteral("Run without the admin window.")});
+    parser.addOption({QStringLiteral("dev"), QStringLiteral("Development mode: allow multiple server instances.")});
+    parser.addOption({QStringLiteral("production"),
+                      QStringLiteral("Production mode: single-instance (second launch raises the first).")});
     parser.process(*app);
 
+    const bool development = qm::isDevelopmentMode(parser.isSet(QStringLiteral("dev")),
+                                                   parser.isSet(QStringLiteral("production")));
+
     qm::Logger::install();
+    qInfo("QtMeetServer mode: %s", development ? "development (multi-instance)" : "production (single-instance)");
 
     qm::AppConfig config;
     const QString configPath = parser.isSet(QStringLiteral("config"))
@@ -59,7 +67,7 @@ int main(int argc, char *argv[])
     config.load(configPath);
 
     std::unique_ptr<qm::SingleInstance> instance;
-    if (!headless) {
+    if (!headless && !development) {
         instance = std::make_unique<qm::SingleInstance>(QStringLiteral("QtMeet.Server.SingleInstance"));
         if (!instance->tryBecomePrimary()) {
             qm::SingleInstance::notifyPrimary(QStringLiteral("QtMeet.Server.SingleInstance"));
@@ -82,14 +90,15 @@ int main(int argc, char *argv[])
     shell.setShowHotkey(config.server().showHotkey);
     qmlRegisterSingletonInstance("QtMeet.Server", 1, 0, "Shell", &shell);
 
-    QObject::connect(instance.get(), &qm::SingleInstance::activationRequested, &shell,
-                     &qm::DesktopShell::showWindow);
+    if (instance) {
+        QObject::connect(instance.get(), &qm::SingleInstance::activationRequested, &shell,
+                         &qm::DesktopShell::showWindow);
+    }
     QObject::connect(&shell, &qm::DesktopShell::showHotkeyChanged, &shell, [&] {
         qm::AppConfig cfg;
         cfg.load(configPath);
         qm::ServerSettings s = server.settings();
         s.showHotkey = shell.showHotkey();
-        // Preserve cert/data paths from disk when empty on live settings.
         const qm::ServerSettings previous = cfg.server();
         if (s.certFile.isEmpty())
             s.certFile = previous.certFile;

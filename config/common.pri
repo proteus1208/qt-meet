@@ -9,6 +9,20 @@ QM_GEN_DIR    = $$QM_BUILD_ROOT/gen
 CONFIG += c++17 warn_on
 CONFIG -= debug_and_release debug_and_release_target
 
+# =============================================================================
+# App mode (this is the switch — your kit has no separate Debug/Release)
+#   development  → allow opening client/server multiple times (2 clients on 1 PC)
+#   production   → single-instance (second launch raises the first window)
+# Change the value below, then rebuild. Runtime override: --dev / --production
+# =============================================================================
+QM_APP_MODE = development
+
+equals(QM_APP_MODE, development) {
+    DEFINES += QM_DEVELOPMENT
+} else {
+    DEFINES += QM_FORCE_PRODUCTION
+}
+
 # Third-party headers (protobuf/abseil, libdatachannel) clash with the Qt keyword macros.
 DEFINES += QT_NO_KEYWORDS
 
