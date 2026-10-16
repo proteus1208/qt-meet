@@ -72,6 +72,8 @@ message LoginRes {
   uint32        rtc_port_min   = 6;
   uint32        rtc_port_max   = 7;
   TransportMode transport_mode = 8;
+  uint32        default_call_bitrate_kbps    = 9;  // server default for 1:1 calls
+  uint32        default_meeting_bitrate_kbps = 10; // server default for meetings
 }
 
 message Logout {}

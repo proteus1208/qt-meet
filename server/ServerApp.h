@@ -45,10 +45,15 @@ public:
     TransportMode transportMode() const;
     void          setDefaultChannelBitrateKbps(int kbps);
     int           defaultChannelBitrateKbps() const;
+    void          setDefaultCallBitrateKbps(int kbps);
+    int           defaultCallBitrateKbps() const;
+    void          setDefaultMeetingBitrateKbps(int kbps);
+    int           defaultMeetingBitrateKbps() const;
 
     SessionRegistry   *sessions() const;
     ConnectionManager *connections() const;
     ChannelService    *channels() const;
+    StorageManager    *storage() const;
     const ServerSettings &settings() const;
 
 Q_SIGNALS:

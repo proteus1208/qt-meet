@@ -457,10 +457,46 @@ QList<SourceSpec> MediaSource::enumerateSystemAudio()
     monitor.kind = SourceKind::Microphone;
     monitor.format = QStringLiteral("pulse");
     monitor.location = QStringLiteral("default.monitor");
-    monitor.displayName = QStringLiteral("System audio (Pulse monitor)");
+    monitor.displayName = QStringLiteral("System output (speakers)");
     out.append(monitor);
+
+    const AVInputFormat *fmt = av_find_input_format("pulse");
+    if (fmt) {
+        AVDeviceInfoList *list = nullptr;
+        if (avdevice_list_input_sources(fmt, nullptr, nullptr, &list) >= 0 && list) {
+            for (int i = 0; i < list->nb_devices; ++i) {
+                const AVDeviceInfo *dev = list->devices[i];
+                if (!dev || !dev->device_name)
+                    continue;
+                const QString name = QString::fromUtf8(dev->device_name);
+                if (!name.endsWith(QLatin1String(".monitor")) || name == QLatin1String("default.monitor"))
+                    continue;
+                SourceSpec spec;
+                spec.kind = SourceKind::Microphone;
+                spec.format = QStringLiteral("pulse");
+                spec.location = name;
+                const QString desc = QString::fromUtf8(dev->device_description
+                                                           ? dev->device_description
+                                                           : dev->device_name);
+                spec.displayName = QStringLiteral("System output — %1").arg(desc);
+                out.append(spec);
+            }
+            avdevice_free_list_devices(&list);
+        }
+    }
 #elif defined(Q_OS_WIN)
-    // Prefer loopback-looking dshow devices (Stereo Mix, Wave Out Mix, …).
+    // Preferred: WASAPI loopback captures whatever the speakers are playing.
+    if (av_find_input_format("wasapi")) {
+        SourceSpec loopback;
+        loopback.kind = SourceKind::Microphone;
+        loopback.format = QStringLiteral("wasapi");
+        loopback.location = QStringLiteral("default");
+        loopback.options.insert(QStringLiteral("loopback"), QStringLiteral("1"));
+        loopback.displayName = QStringLiteral("System output (speakers)");
+        out.append(loopback);
+    }
+
+    // Also surface classic loopback / virtual-cable dshow devices when present.
     const QList<SourceSpec> mics = enumerateMicrophones();
     for (const SourceSpec &mic : mics) {
         const QString hay = (mic.displayName + QLatin1Char(' ') + mic.location).toLower();
@@ -468,15 +504,7 @@ QList<SourceSpec> MediaSource::enumerateSystemAudio()
             || hay.contains(QStringLiteral("what u hear")) || hay.contains(QStringLiteral("loopback"))
             || hay.contains(QStringLiteral("cable")) || hay.contains(QStringLiteral("vb-audio"))) {
             SourceSpec sys = mic;
-            sys.displayName = QStringLiteral("System audio — %1").arg(mic.displayName);
-            out.append(sys);
-        }
-    }
-    if (out.isEmpty()) {
-        // Still offer every mic so admins can pick a virtual cable manually.
-        for (const SourceSpec &mic : mics) {
-            SourceSpec sys = mic;
-            sys.displayName = QStringLiteral("Audio — %1").arg(mic.displayName);
+            sys.displayName = QStringLiteral("System output — %1").arg(mic.displayName);
             out.append(sys);
         }
     }

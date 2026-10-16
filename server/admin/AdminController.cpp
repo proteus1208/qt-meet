@@ -1,6 +1,10 @@
 #include "AdminController.h"
 
+#include <algorithm>
+
+#include <QSet>
 #include <QTimer>
+#include <QtGlobal>
 
 #include "ServerApp.h"
 #include "common/AppConfig.h"
@@ -9,6 +13,8 @@
 #include "net/ConnectionManager.h"
 #include "net/SessionRegistry.h"
 #include "services/ChannelService.h"
+#include "storage/StorageManager.h"
+#include "storage/StorageTypes.h"
 
 namespace qm {
 
@@ -42,6 +48,16 @@ SourceSpec sourceFromVariant(const QVariantMap &map)
     return spec;
 }
 
+QVariantMap userRow(UserId id, const QString &name, const QString &username, bool online)
+{
+    QVariantMap row;
+    row.insert(QStringLiteral("id"), qint64(id));
+    row.insert(QStringLiteral("name"), name);
+    row.insert(QStringLiteral("username"), username);
+    row.insert(QStringLiteral("online"), online);
+    return row;
+}
+
 } // namespace
 
 AdminController::AdminController(ServerApp *server, const QString &configPath, QObject *parent)
@@ -52,6 +68,7 @@ AdminController::AdminController(ServerApp *server, const QString &configPath, Q
     connect(m_server, &ServerApp::hostedFolderChanged, this, &AdminController::hostedFolderChanged);
     connect(m_server, &ServerApp::runningChanged, this, &AdminController::runningChanged);
     connect(m_server, &ServerApp::runningChanged, this, &AdminController::bindChannelSignals);
+    connect(m_server, &ServerApp::runningChanged, this, &AdminController::bindSessionSignals);
     connect(m_server, &ServerApp::transportModeChanged, this, &AdminController::transportModeChanged);
     connect(m_server, &ServerApp::errorOccurred, this, &AdminController::errorOccurred);
 
@@ -73,7 +90,7 @@ bool AdminController::running() const
     return m_server->isRunning();
 }
 
-QStringList AdminController::onlineUsers() const
+QVariantList AdminController::onlineUsers() const
 {
     return m_onlineUsers;
 }
@@ -140,6 +157,30 @@ void AdminController::setDefaultChannelBitrateKbps(int kbps)
     Q_EMIT transportModeChanged();
 }
 
+int AdminController::defaultCallBitrateKbps() const
+{
+    return m_server->defaultCallBitrateKbps();
+}
+
+void AdminController::setDefaultCallBitrateKbps(int kbps)
+{
+    m_server->setDefaultCallBitrateKbps(kbps);
+    persistSettings();
+    Q_EMIT transportModeChanged();
+}
+
+int AdminController::defaultMeetingBitrateKbps() const
+{
+    return m_server->defaultMeetingBitrateKbps();
+}
+
+void AdminController::setDefaultMeetingBitrateKbps(int kbps)
+{
+    m_server->setDefaultMeetingBitrateKbps(kbps);
+    persistSettings();
+    Q_EMIT transportModeChanged();
+}
+
 QStringList AdminController::transportModeLabels() const
 {
     return {QStringLiteral("Direct (unicast SFU)"), QStringLiteral("Multicast (shared feed)")};
@@ -149,6 +190,7 @@ void AdminController::start()
 {
     m_server->start();
     bindChannelSignals();
+    bindSessionSignals();
     refreshChannels();
     refreshStats();
 }
@@ -174,6 +216,10 @@ void AdminController::refreshSources()
     m_videoLabels.clear();
     m_audioLabels.clear();
 
+    // Index 0 = None (video-only / audio-only channels).
+    m_videoLabels.append(QStringLiteral("— None —"));
+    m_audioLabels.append(QStringLiteral("— None —"));
+
     for (const SourceSpec &cam : MediaSource::enumerateCameras()) {
         m_videoSources.append(sourceToVariant(cam));
         m_videoLabels.append(cam.displayName.isEmpty() ? cam.location : cam.displayName);
@@ -184,22 +230,23 @@ void AdminController::refreshSources()
                                                           : screen.displayName);
     }
 
-    for (const SourceSpec &mic : MediaSource::enumerateMicrophones()) {
-        m_audioSources.append(sourceToVariant(mic));
-        m_audioLabels.append(mic.displayName.isEmpty() ? mic.location : mic.displayName);
-    }
+    // System output first so admins can pick speakers/loopback as the "mic" source.
     for (const SourceSpec &sys : MediaSource::enumerateSystemAudio()) {
+        m_audioSources.append(sourceToVariant(sys));
+        m_audioLabels.append(sys.displayName.isEmpty() ? sys.location : sys.displayName);
+    }
+    for (const SourceSpec &mic : MediaSource::enumerateMicrophones()) {
         bool dup = false;
         for (const QVariant &existing : m_audioSources) {
-            if (existing.toMap().value(QStringLiteral("location")).toString() == sys.location) {
+            if (existing.toMap().value(QStringLiteral("location")).toString() == mic.location) {
                 dup = true;
                 break;
             }
         }
         if (dup)
             continue;
-        m_audioSources.append(sourceToVariant(sys));
-        m_audioLabels.append(sys.displayName.isEmpty() ? sys.location : sys.displayName);
+        m_audioSources.append(sourceToVariant(mic));
+        m_audioLabels.append(mic.displayName.isEmpty() ? mic.location : mic.displayName);
     }
 
     Q_EMIT sourcesChanged();
@@ -214,26 +261,41 @@ void AdminController::refreshChannels()
     Q_EMIT channelsChanged();
 }
 
-bool AdminController::addChannel(const QString &name, int videoIndex, int audioIndex)
+bool AdminController::addChannel(const QString &name, int videoIndex, int audioIndex,
+                                 int bitrateKbps)
 {
     auto *svc = m_server->channels();
     if (!svc) {
         Q_EMIT errorOccurred(QStringLiteral("Start the server before adding channels."));
         return false;
     }
-    if (videoIndex < 0 || videoIndex >= m_videoSources.size()) {
-        Q_EMIT errorOccurred(QStringLiteral("Pick a camera or screen source."));
-        return false;
+
+    // Combo index 0 = None; 1..N map into m_*Sources.
+    SourceSpec video;
+    SourceSpec audio;
+    if (videoIndex > 0) {
+        const int src = videoIndex - 1;
+        if (src < 0 || src >= m_videoSources.size()) {
+            Q_EMIT errorOccurred(QStringLiteral("Pick a camera or screen source."));
+            return false;
+        }
+        video = sourceFromVariant(m_videoSources.at(src).toMap());
     }
-    if (audioIndex < 0 || audioIndex >= m_audioSources.size()) {
-        Q_EMIT errorOccurred(QStringLiteral("Pick a microphone or system-audio source."));
+    if (audioIndex > 0) {
+        const int src = audioIndex - 1;
+        if (src < 0 || src >= m_audioSources.size()) {
+            Q_EMIT errorOccurred(QStringLiteral("Pick a microphone or system-audio source."));
+            return false;
+        }
+        audio = sourceFromVariant(m_audioSources.at(src).toMap());
+    }
+    if (video.location.isEmpty() && audio.location.isEmpty()) {
+        Q_EMIT errorOccurred(QStringLiteral("Pick at least a video or audio source."));
         return false;
     }
 
     QString error;
-    const QString id =
-        svc->addChannel(name, sourceFromVariant(m_videoSources.at(videoIndex).toMap()),
-                        sourceFromVariant(m_audioSources.at(audioIndex).toMap()), &error);
+    const QString id = svc->addChannel(name, video, audio, bitrateKbps, &error);
     if (id.isEmpty()) {
         Q_EMIT errorOccurred(error.isEmpty() ? QStringLiteral("Failed to add channel") : error);
         return false;
@@ -284,24 +346,76 @@ bool AdminController::stopChannel(const QString &channelId)
     return true;
 }
 
+bool AdminController::setChannelBitrate(const QString &channelId, int bitrateKbps)
+{
+    auto *svc = m_server->channels();
+    if (!svc)
+        return false;
+    QString error;
+    if (!svc->setChannelBitrateKbps(channelId, bitrateKbps, &error)) {
+        Q_EMIT errorOccurred(error);
+        return false;
+    }
+    for (int i = 0; i < m_channels.size(); ++i) {
+        QVariantMap row = m_channels.at(i).toMap();
+        if (row.value(QStringLiteral("id")).toString() != channelId)
+            continue;
+        row.insert(QStringLiteral("bitrateKbps"), qBound(200, bitrateKbps, 8000));
+        m_channels[i] = row;
+        break;
+    }
+    return true;
+}
+
 void AdminController::refreshStats()
 {
-    QStringList names;
+    QVariantList users;
     int conns = 0;
-    if (auto *sessions = m_server->sessions()) {
+    SessionRegistry *sessions = m_server->sessions();
+    StorageManager *storage = m_server->storage();
+
+    if (storage) {
+        const QList<UserRecord> found = storage->searchUsers(QString(), 500, 0).result();
+        QSet<UserId> seen;
+        for (const UserRecord &user : found) {
+            const bool online = sessions && sessions->isOnline(user.id);
+            users.append(userRow(user.id, user.displayName, user.username, online));
+            seen.insert(user.id);
+        }
+        // Include anyone currently online who might not match the search (shouldn't happen).
+        if (sessions) {
+            for (UserId id : sessions->onlineUsers()) {
+                if (seen.contains(id))
+                    continue;
+                users.append(userRow(id, sessions->displayName(id), sessions->username(id), true));
+            }
+        }
+    } else if (sessions) {
         for (UserId id : sessions->onlineUsers())
-            names.append(sessions->displayName(id));
+            users.append(userRow(id, sessions->displayName(id), sessions->username(id), true));
     }
+
     if (auto *cm = m_server->connections())
         conns = cm->connectionCount();
 
-    names.sort(Qt::CaseInsensitive);
-    if (names != m_onlineUsers || conns != m_connectionCount) {
-        m_onlineUsers = names;
+    // Stable order: online first, then by display name.
+    std::sort(users.begin(), users.end(), [](const QVariant &a, const QVariant &b) {
+        const QVariantMap ma = a.toMap();
+        const QVariantMap mb = b.toMap();
+        const bool oa = ma.value(QStringLiteral("online")).toBool();
+        const bool ob = mb.value(QStringLiteral("online")).toBool();
+        if (oa != ob)
+            return oa && !ob;
+        return ma.value(QStringLiteral("name")).toString().compare(
+                   mb.value(QStringLiteral("name")).toString(), Qt::CaseInsensitive)
+               < 0;
+    });
+
+    if (users != m_onlineUsers || conns != m_connectionCount) {
+        m_onlineUsers = users;
         m_connectionCount = conns;
         Q_EMIT statsChanged();
     }
-    Q_EMIT runningChanged();
 }
 
 void AdminController::bindChannelSignals()
@@ -310,6 +424,17 @@ void AdminController::bindChannelSignals()
         connect(svc, &ChannelService::channelsChanged, this, &AdminController::refreshChannels,
                 Qt::UniqueConnection);
         refreshChannels();
+    }
+}
+
+void AdminController::bindSessionSignals()
+{
+    if (auto *sessions = m_server->sessions()) {
+        connect(sessions, &SessionRegistry::userOnline, this, &AdminController::refreshStats,
+                Qt::UniqueConnection);
+        connect(sessions, &SessionRegistry::userOffline, this, &AdminController::refreshStats,
+                Qt::UniqueConnection);
+        refreshStats();
     }
 }
 

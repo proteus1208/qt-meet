@@ -3,6 +3,7 @@
 #include <QCryptographicHash>
 #include <QPasswordDigestor>
 #include <QRandomGenerator>
+#include <QtGlobal>
 
 #include "common/EnvelopeFactory.h"
 #include "common/Ids.h"
@@ -123,7 +124,7 @@ void AuthService::onLogin(const RequestContext &context, const proto::Envelope &
         }
     }
 
-    m_sessions->bind(context.conn, user->id, user->displayName);
+    m_sessions->bind(context.conn, user->id, user->displayName, user->username);
     const QString token = m_http ? m_http->issueToken(user->id) : Ids::uuid();
     // Only advertise a real listening base URL — a fake 127.0.0.1:port makes the
     // client fail with FFmpeg "Error number -138" (connection refused) on play.
@@ -138,6 +139,9 @@ void AuthService::onLogin(const RequestContext &context, const proto::Envelope &
     res->set_transport_mode(m_settings.transportMode == TransportMode::Multicast
                                 ? proto::TRANSPORT_MULTICAST
                                 : proto::TRANSPORT_DIRECT);
+    res->set_default_call_bitrate_kbps(uint32_t(qBound(200, m_settings.defaultCallBitrateKbps, 8000)));
+    res->set_default_meeting_bitrate_kbps(
+        uint32_t(qBound(200, m_settings.defaultMeetingBitrateKbps, 8000)));
 
     auto *me = res->mutable_me();
     me->set_id(user->id);

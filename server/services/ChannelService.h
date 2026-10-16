@@ -38,10 +38,11 @@ public:
     /// Admin APIs (called from AdminController on the GUI thread).
     QVariantList listForAdmin() const;
     QString      addChannel(const QString &name, const SourceSpec &video, const SourceSpec &audio,
-                            QString *error = nullptr);
+                            int bitrateKbps = 0, QString *error = nullptr);
     bool         removeChannel(const QString &channelId, QString *error = nullptr);
     bool         startChannel(const QString &channelId, QString *error = nullptr);
     bool         stopChannel(const QString &channelId, QString *error = nullptr);
+    bool         setChannelBitrateKbps(const QString &channelId, int kbps, QString *error = nullptr);
 
 public Q_SLOTS:
     void onUserOffline(qm::UserId user);
@@ -58,6 +59,7 @@ private:
         SourceSpec audio;
         UserId     publisherId = 0;
         bool       wantRunning = false;
+        int        adminBitrateKbps = 0; // 0 = use server default channel bitrate
         std::unique_ptr<ChannelPublisher> publisher;
         QSet<UserId> viewers;
         QHash<UserId, int> viewerBandwidthKbps;

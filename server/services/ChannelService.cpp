@@ -125,19 +125,26 @@ QVariantList ChannelService::listForAdmin() const
         row.insert(QStringLiteral("running"),
                    channel->publisher && channel->publisher->isRunning());
         row.insert(QStringLiteral("videoLabel"),
-                   channel->video.displayName.isEmpty() ? channel->video.location
-                                                        : channel->video.displayName);
+                   channel->video.location.isEmpty()
+                       ? QStringLiteral("—")
+                       : (channel->video.displayName.isEmpty() ? channel->video.location
+                                                                : channel->video.displayName));
         row.insert(QStringLiteral("audioLabel"),
-                   channel->audio.displayName.isEmpty() ? channel->audio.location
-                                                        : channel->audio.displayName);
+                   channel->audio.location.isEmpty()
+                       ? QStringLiteral("—")
+                       : (channel->audio.displayName.isEmpty() ? channel->audio.location
+                                                                : channel->audio.displayName));
         row.insert(QStringLiteral("viewers"), channel->viewers.size());
+        const int bitrate = channel->adminBitrateKbps > 0 ? channel->adminBitrateKbps
+                                                          : m_defaultBitrateKbps;
+        row.insert(QStringLiteral("bitrateKbps"), bitrate);
         out.append(row);
     }
     return out;
 }
 
 QString ChannelService::addChannel(const QString &name, const SourceSpec &video,
-                                   const SourceSpec &audio, QString *error)
+                                   const SourceSpec &audio, int bitrateKbps, QString *error)
 {
     const QString trimmed = name.trimmed();
     if (trimmed.isEmpty()) {
@@ -156,6 +163,7 @@ QString ChannelService::addChannel(const QString &name, const SourceSpec &video,
     channel->name = trimmed;
     channel->video = video;
     channel->audio = audio;
+    channel->adminBitrateKbps = bitrateKbps > 0 ? clampBitrateKbps(bitrateKbps) : 0;
     channel->publisherId = makePublisherId(channel->id);
     channel->wantRunning = true;
 
@@ -245,6 +253,23 @@ bool ChannelService::stopChannel(const QString &channelId, QString *error)
     locker.unlock();
     broadcastEvent(proto::ChannelEvt::UPDATED, *channel);
     Q_EMIT channelsChanged();
+    return true;
+}
+
+bool ChannelService::setChannelBitrateKbps(const QString &channelId, int kbps, QString *error)
+{
+    QMutexLocker locker(&m_mutex);
+    Channel *channel = m_channels.value(channelId);
+    if (!channel) {
+        if (error)
+            *error = QStringLiteral("Unknown channel");
+        return false;
+    }
+    channel->adminBitrateKbps = clampBitrateKbps(kbps);
+    applyChannelBitrateLocked(*channel);
+    saveStore();
+    // Intentionally skip channelsChanged — admin UI updates the slider locally
+    // without rebuilding the list mid-drag.
     return true;
 }
 
@@ -421,17 +446,19 @@ void ChannelService::applyChannelBitrateLocked(Channel &channel)
 
 int ChannelService::targetBitrateKbpsLocked(const Channel &channel) const
 {
-    int target = m_defaultBitrateKbps;
+    const int channelBase =
+        channel.adminBitrateKbps > 0 ? channel.adminBitrateKbps : m_defaultBitrateKbps;
+    int target = channelBase;
     if (!channel.viewerBandwidthKbps.isEmpty()) {
         target = 0;
         for (int kbps : channel.viewerBandwidthKbps)
             target = qMax(target, kbps);
-        // Multicast shares one encode: keep at least the admin default floor.
+        // Multicast shares one encode: keep at least this channel's admin floor.
         if (m_transportMode == TransportMode::Multicast)
-            target = qMax(target, m_defaultBitrateKbps);
+            target = qMax(target, channelBase);
     }
     if (target <= 0)
-        target = m_defaultBitrateKbps;
+        target = channelBase;
     return qBound(200, target, 8000);
 }
 
@@ -466,6 +493,9 @@ void ChannelService::loadStore()
         channel->video = sourceFromMap(obj.value(QStringLiteral("video")).toObject().toVariantMap());
         channel->audio = sourceFromMap(obj.value(QStringLiteral("audio")).toObject().toVariantMap());
         channel->wantRunning = obj.value(QStringLiteral("wantRunning")).toBool(true);
+        channel->adminBitrateKbps = obj.value(QStringLiteral("bitrateKbps")).toInt(0);
+        if (channel->adminBitrateKbps > 0)
+            channel->adminBitrateKbps = clampBitrateKbps(channel->adminBitrateKbps);
         if (channel->id.isEmpty() || channel->name.isEmpty()) {
             delete channel;
             continue;
@@ -483,6 +513,8 @@ void ChannelService::saveStore() const
         obj.insert(QStringLiteral("id"), channel->id);
         obj.insert(QStringLiteral("name"), channel->name);
         obj.insert(QStringLiteral("wantRunning"), channel->wantRunning);
+        if (channel->adminBitrateKbps > 0)
+            obj.insert(QStringLiteral("bitrateKbps"), channel->adminBitrateKbps);
         obj.insert(QStringLiteral("video"),
                    QJsonObject::fromVariantMap(sourceToMap(channel->video)));
         obj.insert(QStringLiteral("audio"),

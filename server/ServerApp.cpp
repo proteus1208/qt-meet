@@ -188,6 +188,38 @@ int ServerApp::defaultChannelBitrateKbps() const
     return m_settings.defaultChannelBitrateKbps;
 }
 
+void ServerApp::setDefaultCallBitrateKbps(int kbps)
+{
+    const int clamped = qBound(200, kbps, 8000);
+    if (m_settings.defaultCallBitrateKbps == clamped)
+        return;
+    m_settings.defaultCallBitrateKbps = clamped;
+    if (m_auth)
+        m_auth->setSettings(m_settings);
+    Q_EMIT transportModeChanged();
+}
+
+int ServerApp::defaultCallBitrateKbps() const
+{
+    return m_settings.defaultCallBitrateKbps;
+}
+
+void ServerApp::setDefaultMeetingBitrateKbps(int kbps)
+{
+    const int clamped = qBound(200, kbps, 8000);
+    if (m_settings.defaultMeetingBitrateKbps == clamped)
+        return;
+    m_settings.defaultMeetingBitrateKbps = clamped;
+    if (m_auth)
+        m_auth->setSettings(m_settings);
+    Q_EMIT transportModeChanged();
+}
+
+int ServerApp::defaultMeetingBitrateKbps() const
+{
+    return m_settings.defaultMeetingBitrateKbps;
+}
+
 bool ServerApp::httpMediaListening() const
 {
     return m_http && m_http->isListening();
@@ -206,6 +238,11 @@ ConnectionManager *ServerApp::connections() const
 ChannelService *ServerApp::channels() const
 {
     return m_channels.get();
+}
+
+StorageManager *ServerApp::storage() const
+{
+    return m_storage.get();
 }
 
 const ServerSettings &ServerApp::settings() const

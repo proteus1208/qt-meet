@@ -18,7 +18,7 @@ class AdminController : public QObject
     Q_OBJECT
     Q_PROPERTY(QString hostedFolder READ hostedFolder NOTIFY hostedFolderChanged)
     Q_PROPERTY(bool running READ running NOTIFY runningChanged)
-    Q_PROPERTY(QStringList onlineUsers READ onlineUsers NOTIFY statsChanged)
+    Q_PROPERTY(QVariantList onlineUsers READ onlineUsers NOTIFY statsChanged)
     Q_PROPERTY(int connectionCount READ connectionCount NOTIFY statsChanged)
     Q_PROPERTY(QString listenInfo READ listenInfo NOTIFY runningChanged)
     Q_PROPERTY(QVariantList channels READ channels NOTIFY channelsChanged)
@@ -27,6 +27,10 @@ class AdminController : public QObject
     Q_PROPERTY(int transportMode READ transportMode WRITE setTransportMode NOTIFY transportModeChanged)
     Q_PROPERTY(int defaultChannelBitrateKbps READ defaultChannelBitrateKbps
                WRITE setDefaultChannelBitrateKbps NOTIFY transportModeChanged)
+    Q_PROPERTY(int defaultCallBitrateKbps READ defaultCallBitrateKbps
+               WRITE setDefaultCallBitrateKbps NOTIFY transportModeChanged)
+    Q_PROPERTY(int defaultMeetingBitrateKbps READ defaultMeetingBitrateKbps
+               WRITE setDefaultMeetingBitrateKbps NOTIFY transportModeChanged)
     Q_PROPERTY(QStringList transportModeLabels READ transportModeLabels CONSTANT)
 
 public:
@@ -34,7 +38,7 @@ public:
 
     QString      hostedFolder() const;
     bool         running() const;
-    QStringList  onlineUsers() const;
+    QVariantList onlineUsers() const;
     int          connectionCount() const;
     QString      listenInfo() const;
     QVariantList channels() const;
@@ -44,6 +48,10 @@ public:
     void         setTransportMode(int mode);
     int          defaultChannelBitrateKbps() const;
     void         setDefaultChannelBitrateKbps(int kbps);
+    int          defaultCallBitrateKbps() const;
+    void         setDefaultCallBitrateKbps(int kbps);
+    int          defaultMeetingBitrateKbps() const;
+    void         setDefaultMeetingBitrateKbps(int kbps);
     QStringList  transportModeLabels() const;
 
     Q_INVOKABLE void start();
@@ -52,10 +60,13 @@ public:
 
     Q_INVOKABLE void refreshSources();
     Q_INVOKABLE void refreshChannels();
-    Q_INVOKABLE bool addChannel(const QString &name, int videoIndex, int audioIndex);
+    /// videoIndex / audioIndex: 0 = None, 1..N = device from refreshSources lists.
+    Q_INVOKABLE bool addChannel(const QString &name, int videoIndex, int audioIndex,
+                                int bitrateKbps = 0);
     Q_INVOKABLE bool removeChannel(const QString &channelId);
     Q_INVOKABLE bool startChannel(const QString &channelId);
     Q_INVOKABLE bool stopChannel(const QString &channelId);
+    Q_INVOKABLE bool setChannelBitrate(const QString &channelId, int bitrateKbps);
 
 Q_SIGNALS:
     void hostedFolderChanged();
@@ -69,12 +80,13 @@ Q_SIGNALS:
 private:
     void refreshStats();
     void bindChannelSignals();
+    void bindSessionSignals();
     void persistSettings();
 
     ServerApp   *m_server = nullptr;
     QString      m_configPath;
     QTimer      *m_statsTimer = nullptr;
-    QStringList  m_onlineUsers;
+    QVariantList m_onlineUsers;
     int          m_connectionCount = 0;
     QVariantList m_channels;
     QStringList  m_videoLabels;

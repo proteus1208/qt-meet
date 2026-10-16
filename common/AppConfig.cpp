@@ -69,6 +69,10 @@ bool AppConfig::load(const QString &path)
                                                                  : TransportMode::Direct;
     m_server.defaultChannelBitrateKbps =
         s.value(QStringLiteral("defaultChannelBitrateKbps"), 1200).toInt();
+    m_server.defaultCallBitrateKbps =
+        s.value(QStringLiteral("defaultCallBitrateKbps"), 1200).toInt();
+    m_server.defaultMeetingBitrateKbps =
+        s.value(QStringLiteral("defaultMeetingBitrateKbps"), 1200).toInt();
     s.endGroup();
 
     s.beginGroup(QStringLiteral("client"));
@@ -108,6 +112,8 @@ bool AppConfig::save(const QString &path) const
     s.setValue(QStringLiteral("transportMode"),
                m_server.transportMode == TransportMode::Multicast ? 1 : 0);
     s.setValue(QStringLiteral("defaultChannelBitrateKbps"), m_server.defaultChannelBitrateKbps);
+    s.setValue(QStringLiteral("defaultCallBitrateKbps"), m_server.defaultCallBitrateKbps);
+    s.setValue(QStringLiteral("defaultMeetingBitrateKbps"), m_server.defaultMeetingBitrateKbps);
     s.endGroup();
 
     s.beginGroup(QStringLiteral("client"));

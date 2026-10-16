@@ -25,6 +25,8 @@ struct ServerSettings
     int     handlerThreads = 0;   // 0 = auto (cores)
     TransportMode transportMode = TransportMode::Direct;
     int     defaultChannelBitrateKbps = 1200;
+    int     defaultCallBitrateKbps = 1200;
+    int     defaultMeetingBitrateKbps = 1200;
 };
 
 struct ClientSettings

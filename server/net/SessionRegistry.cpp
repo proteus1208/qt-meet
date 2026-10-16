@@ -36,7 +36,8 @@ void SessionRegistry::unregisterConnection(ConnId conn)
     }
 }
 
-bool SessionRegistry::bind(ConnId conn, UserId user, const QString &displayName)
+bool SessionRegistry::bind(ConnId conn, UserId user, const QString &displayName,
+                           const QString &username)
 {
     if (conn == 0 || user == 0)
         return false;
@@ -58,6 +59,8 @@ bool SessionRegistry::bind(ConnId conn, UserId user, const QString &displayName)
         m_connUser.insert(conn, user);
         m_userConns.insert(user, conn);
         m_names.insert(user, displayName);
+        if (!username.isEmpty())
+            m_usernames.insert(user, username);
     }
 
     if (becameOnline)
@@ -92,6 +95,12 @@ QString SessionRegistry::displayName(UserId user) const
     QReadLocker locker(&m_lock);
     const QString name = m_names.value(user);
     return name.isEmpty() ? QStringLiteral("user-%1").arg(user) : name;
+}
+
+QString SessionRegistry::username(UserId user) const
+{
+    QReadLocker locker(&m_lock);
+    return m_usernames.value(user);
 }
 
 QList<ConnId> SessionRegistry::connectionsOf(UserId user) const

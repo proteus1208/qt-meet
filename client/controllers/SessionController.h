@@ -25,6 +25,8 @@ class SessionController : public QObject
     Q_PROPERTY(QString errorString READ errorString NOTIFY errorChanged)
     Q_PROPERTY(int transportMode READ transportMode NOTIFY sessionChanged)
     Q_PROPERTY(QString transportModeLabel READ transportModeLabel NOTIFY sessionChanged)
+    Q_PROPERTY(int defaultCallBitrateKbps READ defaultCallBitrateKbps NOTIFY sessionChanged)
+    Q_PROPERTY(int defaultMeetingBitrateKbps READ defaultMeetingBitrateKbps NOTIFY sessionChanged)
 
 public:
     explicit SessionController(NetworkClient *network, QObject *parent = nullptr);
@@ -47,6 +49,8 @@ public:
     quint16 rtcPortMax() const;
     int     transportMode() const;
     QString transportModeLabel() const;
+    int     defaultCallBitrateKbps() const;
+    int     defaultMeetingBitrateKbps() const;
 
     Q_INVOKABLE void login(const QString &username, const QString &password);
     Q_INVOKABLE void registerUser(const QString &username, const QString &displayName, const QString &password);
@@ -74,6 +78,8 @@ private:
     quint16         m_rtcPortMin = 40000;
     quint16         m_rtcPortMax = 40100;
     int             m_transportMode = 0; // 0 Direct, 1 Multicast
+    int             m_defaultCallBitrateKbps = 1200;
+    int             m_defaultMeetingBitrateKbps = 1200;
     bool            m_loggedIn = false;
     bool            m_busy = false;
 };

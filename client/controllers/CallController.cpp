@@ -438,6 +438,7 @@ void CallController::callUser(qint64 userId, const QString &displayName, bool vi
     if (!m_session->loggedIn() || userId == 0 || m_state != State::Idle)
         return;
 
+    setBandwidthKbps(m_session->defaultCallBitrateKbps());
     m_sessionId = Ids::uuid();
     m_peer = UserId(userId);
     m_peerName = displayName;
@@ -473,6 +474,7 @@ void CallController::acceptCall()
     if (m_state != State::Incoming || m_sessionId.isEmpty())
         return;
 
+    setBandwidthKbps(m_session->defaultCallBitrateKbps());
     proto::Envelope env = EnvelopeFactory::request();
     auto *ans = env.mutable_call_answer();
     ans->set_call_id(m_sessionId.toStdString());
@@ -545,6 +547,7 @@ void CallController::createMeeting(const QString &title, bool video)
     if (!m_session->loggedIn() || m_state != State::Idle)
         return;
 
+    setBandwidthKbps(m_session->defaultMeetingBitrateKbps());
     m_video = video;
     m_cameraEnabled = video;
     m_micEnabled = true;
@@ -581,6 +584,7 @@ void CallController::joinMeeting(const QString &code, bool audio, bool video)
 {
     if (!m_session->loggedIn() || m_state != State::Idle)
         return;
+    setBandwidthKbps(m_session->defaultMeetingBitrateKbps());
     const QString trimmed = code.trimmed();
     if (trimmed.isEmpty()) {
         Q_EMIT errorOccurred(QStringLiteral("Enter a meeting code"));
@@ -839,6 +843,7 @@ void CallController::onCallAnswer(const proto::CallAnswer &answer)
     }
 
     if (m_state == State::Outgoing) {
+        setBandwidthKbps(m_session->defaultCallBitrateKbps());
         applySelectedDevices();
         if (m_engine)
             m_engine->startSession(m_sessionId, true, m_video);
@@ -1032,6 +1037,7 @@ void CallController::enterMeeting(const proto::MeetingJoined &joined, bool video
     m_meetingCode = QString::fromStdString(joined.code());
     m_meetingTitle = QString::fromStdString(joined.title());
     m_video = video;
+    setBandwidthKbps(m_session->defaultMeetingBitrateKbps());
 
     QList<proto::Participant> people;
     for (const auto &p : joined.participants())

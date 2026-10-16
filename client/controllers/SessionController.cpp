@@ -113,6 +113,16 @@ QString SessionController::transportModeLabel() const
     return m_transportMode == 1 ? QStringLiteral("Multicast") : QStringLiteral("Direct");
 }
 
+int SessionController::defaultCallBitrateKbps() const
+{
+    return m_defaultCallBitrateKbps;
+}
+
+int SessionController::defaultMeetingBitrateKbps() const
+{
+    return m_defaultMeetingBitrateKbps;
+}
+
 void SessionController::login(const QString &username, const QString &password)
 {
     sendLogin(username, password, false, {});
@@ -237,6 +247,10 @@ void SessionController::onLoginReply(const proto::Envelope &reply)
     if (res.rtc_port_max() > 0)
         m_rtcPortMax = quint16(res.rtc_port_max());
     m_transportMode = (res.transport_mode() == proto::TRANSPORT_MULTICAST) ? 1 : 0;
+    if (res.default_call_bitrate_kbps() > 0)
+        m_defaultCallBitrateKbps = int(res.default_call_bitrate_kbps());
+    if (res.default_meeting_bitrate_kbps() > 0)
+        m_defaultMeetingBitrateKbps = int(res.default_meeting_bitrate_kbps());
     // Server may advertise 127.0.0.1 when bound to Any; rewrite to the host we dialed.
     // Empty http_base_url means the server's HTTP media listener is down — leave it empty.
     if (!m_httpBaseUrl.isEmpty()) {

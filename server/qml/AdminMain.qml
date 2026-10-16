@@ -30,32 +30,22 @@ ApplicationWindow {
     Connections {
         target: Admin
         function onErrorOccurred(message) { toast.show(message, true) }
-        function onStatsChanged() { userModel.rebuild() }
     }
 
-    ListModel {
-        id: userModel
-        function rebuild() {
-            clear()
-            const live = Admin.onlineUsers
-            if (live.length > 0) {
-                for (let i = 0; i < live.length; ++i) {
-                    const name = String(live[i])
-                    const parts = name.trim().split(/\s+/)
-                    let initials = name.substring(0, 2).toUpperCase()
-                    if (parts.length >= 2)
-                        initials = (parts[0][0] + parts[1][0]).toUpperCase()
-                    const palette = ["#3B82F6", "#14B8A6", "#8B5CF6", "#F59E0B", "#EF4444"]
-                    append({
-                               name: name,
-                               initials: initials,
-                               avatarColor: palette[i % palette.length],
-                               ago: qsTr("now")
-                           })
-                }
-            }
-        }
-        Component.onCompleted: rebuild()
+    function userInitials(name) {
+        const parts = String(name || "").trim().split(/\s+/)
+        if (parts.length >= 2)
+            return (parts[0][0] + parts[1][0]).toUpperCase()
+        return String(name || "?").substring(0, 2).toUpperCase()
+    }
+
+    function userMatches(row, query) {
+        if (!query || query.length === 0)
+            return true
+        const q = query.toLowerCase()
+        const name = String(row.name || "").toLowerCase()
+        const user = String(row.username || "").toLowerCase()
+        return name.indexOf(q) >= 0 || user.indexOf(q) >= 0
     }
 
     RowLayout {
@@ -464,7 +454,7 @@ ApplicationWindow {
                     Label {
                         Layout.fillWidth: true
                         wrapMode: Text.Wrap
-                        text: qsTr("Publish live camera or screen + mic/system-audio channels. Clients watch them under Live.")
+                        text: qsTr("Create a channel with video only, audio only, or both. System output appears in the audio list.")
                         color: window.theme.textMuted
                         font.pixelSize: 13
                     }
@@ -483,16 +473,41 @@ ApplicationWindow {
                         }
                     }
 
+                    Label {
+                        text: qsTr("Video source")
+                        color: window.theme.textMuted
+                        font.pixelSize: 11
+                    }
                     ComboBox {
                         id: videoSourceBox
                         Layout.fillWidth: true
                         model: Admin.videoSourceLabels
                         enabled: Admin.running
                     }
+                    Label {
+                        text: qsTr("Audio source (mic or system output)")
+                        color: window.theme.textMuted
+                        font.pixelSize: 11
+                    }
                     ComboBox {
                         id: audioSourceBox
                         Layout.fillWidth: true
                         model: Admin.audioSourceLabels
+                        enabled: Admin.running
+                    }
+
+                    Label {
+                        text: qsTr("Channel bitrate: %1 kbps").arg(Math.round(newChannelBitrate.value))
+                        color: window.theme.textMuted
+                        font.pixelSize: 11
+                    }
+                    Slider {
+                        id: newChannelBitrate
+                        Layout.fillWidth: true
+                        from: 200
+                        to: 4000
+                        stepSize: 50
+                        value: Admin.defaultChannelBitrateKbps
                         enabled: Admin.running
                     }
 
@@ -507,11 +522,12 @@ ApplicationWindow {
                         Button {
                             text: qsTr("Add channel")
                             enabled: Admin.running && channelName.text.trim().length > 0
-                                     && videoSourceBox.count > 0 && audioSourceBox.count > 0
+                                     && (videoSourceBox.currentIndex > 0 || audioSourceBox.currentIndex > 0)
                             onClicked: {
                                 if (Admin.addChannel(channelName.text.trim(),
                                                      videoSourceBox.currentIndex,
-                                                     audioSourceBox.currentIndex))
+                                                     audioSourceBox.currentIndex,
+                                                     Math.round(newChannelBitrate.value)))
                                     channelName.text = ""
                             }
                         }
@@ -576,6 +592,21 @@ ApplicationWindow {
                                     font.pixelSize: 11
                                     elide: Text.ElideRight
                                 }
+                                Label {
+                                    Layout.fillWidth: true
+                                    text: qsTr("Bitrate: %1 kbps").arg(chDelegate.modelData.bitrateKbps || Admin.defaultChannelBitrateKbps)
+                                    color: window.theme.textMuted
+                                    font.pixelSize: 11
+                                }
+                                Slider {
+                                    Layout.fillWidth: true
+                                    from: 200
+                                    to: 4000
+                                    stepSize: 50
+                                    value: chDelegate.modelData.bitrateKbps || Admin.defaultChannelBitrateKbps
+                                    enabled: Admin.running
+                                    onMoved: Admin.setChannelBitrate(chDelegate.modelData.id, Math.round(value))
+                                }
                                 RowLayout {
                                     spacing: 8
                                     Button {
@@ -612,10 +643,18 @@ ApplicationWindow {
                 ColumnLayout {
                     spacing: 12
 
+                    Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.Wrap
+                        text: qsTr("Registered accounts. Online users are highlighted.")
+                        color: window.theme.textMuted
+                        font.pixelSize: 13
+                    }
+
                     TextField {
                         id: userSearch
                         Layout.fillWidth: true
-                        placeholderText: qsTr("Search users…")
+                        placeholderText: qsTr("Search by name or username…")
                         color: window.theme.text
                         background: Rectangle {
                             radius: window.theme.radiusSm
@@ -626,22 +665,23 @@ ApplicationWindow {
                     }
 
                     ListView {
+                        id: usersList
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         clip: true
                         spacing: 6
-                        model: userModel
+                        model: Admin.onlineUsers
 
                         delegate: Rectangle {
                             id: userDelegate
-                            required property string name
-                            required property string initials
-                            required property string avatarColor
-                            required property string ago
+                            required property var modelData
+                            required property int index
+                            readonly property string displayName: String(modelData.name || "")
+                            readonly property string userName: String(modelData.username || "")
+                            readonly property bool isOnline: !!modelData.online
+                            readonly property var palette: ["#3B82F6", "#14B8A6", "#8B5CF6", "#F59E0B", "#EF4444"]
                             width: ListView.view.width
-                            height: (userSearch.text.length === 0
-                                     || name.toLowerCase().indexOf(userSearch.text.toLowerCase()) >= 0)
-                                    ? 56 : 0
+                            height: window.userMatches(modelData, userSearch.text) ? 56 : 0
                             visible: height > 0
                             radius: window.theme.radiusSm
                             color: window.theme.surface
@@ -656,10 +696,10 @@ ApplicationWindow {
                                     Layout.preferredWidth: 36
                                     Layout.preferredHeight: 36
                                     radius: 18
-                                    color: userDelegate.avatarColor
+                                    color: userDelegate.palette[userDelegate.index % userDelegate.palette.length]
                                     Text {
                                         anchors.centerIn: parent
-                                        text: userDelegate.initials
+                                        text: window.userInitials(userDelegate.displayName)
                                         color: "white"
                                         font.bold: true
                                         font.pixelSize: 12
@@ -669,21 +709,34 @@ ApplicationWindow {
                                     Layout.fillWidth: true
                                     spacing: 2
                                     Label {
-                                        text: userDelegate.name
+                                        text: userDelegate.displayName
                                         color: window.theme.text
                                         font.pixelSize: 14
                                         font.bold: true
                                     }
                                     Label {
-                                        text: qsTr("Online")
+                                        text: userDelegate.userName.length
+                                              ? ("@" + userDelegate.userName)
+                                              : qsTr("Registered user")
                                         color: window.theme.textMuted
                                         font.pixelSize: 11
                                     }
                                 }
-                                Label {
-                                    text: userDelegate.ago
-                                    color: window.theme.textDim
-                                    font.pixelSize: 12
+                                Rectangle {
+                                    Layout.preferredHeight: 22
+                                    Layout.preferredWidth: statusLabel.implicitWidth + 16
+                                    radius: 11
+                                    color: userDelegate.isOnline ? window.theme.successSoft : window.theme.surfaceAlt
+                                    border.color: userDelegate.isOnline ? window.theme.success : window.theme.border
+                                    border.width: 1
+                                    Label {
+                                        id: statusLabel
+                                        anchors.centerIn: parent
+                                        text: userDelegate.isOnline ? qsTr("Online") : qsTr("Offline")
+                                        color: userDelegate.isOnline ? window.theme.success : window.theme.textDim
+                                        font.pixelSize: 10
+                                        font.bold: true
+                                    }
                                 }
                             }
                         }
@@ -691,7 +744,9 @@ ApplicationWindow {
 
                     Label {
                         visible: Admin.onlineUsers.length === 0
-                        text: qsTr("No users online.")
+                        text: Admin.running
+                              ? qsTr("No registered users yet.")
+                              : qsTr("Start the service to load the user directory.")
                         color: window.theme.textDim
                         font.pixelSize: 12
                     }
@@ -704,7 +759,7 @@ ApplicationWindow {
                     Label {
                         Layout.fillWidth: true
                         wrapMode: Text.Wrap
-                        text: qsTr("Delivery and default quality for live channels. Changes are saved automatically.")
+                        text: qsTr("Delivery and default bitrates. Saved automatically and sent to clients on login.")
                         color: window.theme.textMuted
                         font.pixelSize: 13
                     }
@@ -755,31 +810,59 @@ ApplicationWindow {
                                 font.bold: true
                             }
                             Label {
-                                Layout.fillWidth: true
                                 text: qsTr("%1 kbps").arg(Admin.defaultChannelBitrateKbps)
                                 color: window.theme.textMuted
                                 font.pixelSize: 12
                             }
-                            RowLayout {
+                            Slider {
                                 Layout.fillWidth: true
-                                Label {
-                                    text: qsTr("Low")
-                                    color: window.theme.textDim
-                                    font.pixelSize: 11
-                                }
-                                Slider {
-                                    Layout.fillWidth: true
-                                    from: 200
-                                    to: 4000
-                                    stepSize: 50
-                                    value: Admin.defaultChannelBitrateKbps
-                                    onMoved: Admin.defaultChannelBitrateKbps = Math.round(value)
-                                }
-                                Label {
-                                    text: qsTr("High")
-                                    color: window.theme.textDim
-                                    font.pixelSize: 11
-                                }
+                                from: 200
+                                to: 4000
+                                stepSize: 50
+                                value: Admin.defaultChannelBitrateKbps
+                                onMoved: Admin.defaultChannelBitrateKbps = Math.round(value)
+                            }
+
+                            Label {
+                                Layout.topMargin: 8
+                                text: qsTr("1:1 call bitrate")
+                                color: window.theme.text
+                                font.pixelSize: 14
+                                font.bold: true
+                            }
+                            Label {
+                                text: qsTr("%1 kbps").arg(Admin.defaultCallBitrateKbps)
+                                color: window.theme.textMuted
+                                font.pixelSize: 12
+                            }
+                            Slider {
+                                Layout.fillWidth: true
+                                from: 200
+                                to: 4000
+                                stepSize: 50
+                                value: Admin.defaultCallBitrateKbps
+                                onMoved: Admin.defaultCallBitrateKbps = Math.round(value)
+                            }
+
+                            Label {
+                                Layout.topMargin: 8
+                                text: qsTr("Meeting bitrate")
+                                color: window.theme.text
+                                font.pixelSize: 14
+                                font.bold: true
+                            }
+                            Label {
+                                text: qsTr("%1 kbps").arg(Admin.defaultMeetingBitrateKbps)
+                                color: window.theme.textMuted
+                                font.pixelSize: 12
+                            }
+                            Slider {
+                                Layout.fillWidth: true
+                                from: 200
+                                to: 4000
+                                stepSize: 50
+                                value: Admin.defaultMeetingBitrateKbps
+                                onMoved: Admin.defaultMeetingBitrateKbps = Math.round(value)
                             }
                         }
                     }
