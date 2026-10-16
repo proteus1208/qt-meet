@@ -82,6 +82,8 @@ Reference/              design plan (local only, git-ignored)
 
 ## Building
 
+**Full install guide (FFmpeg, libdatachannel, env vars, 1-PC test):** see [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md).
+
 ### Requirements
 
 - Qt 6.8+ with Qt Multimedia, Qt Quick Controls, Qt Network
