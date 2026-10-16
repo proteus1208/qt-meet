@@ -66,13 +66,13 @@ SOURCES += \
 RESOURCES += server.qrc
 
 # Ship TLS certs next to the server binary for local / offline LAN use.
+# On Windows, post-link failures used to surface as a useless
+# "Makefile: … QtMeetServer.exe Error 1" with no description — keep copies
+# best-effort so a locked/missing file cannot fail the link step.
 CERT_SRC = $$shell_path($$QM_ROOT/server/certs)
 CERT_DST = $$shell_path($$DESTDIR/certs)
 win32 {
-    QMAKE_POST_LINK += if not exist $$shell_quote($$CERT_DST) mkdir $$shell_quote($$CERT_DST) $$escape_expand(\\n\\t)
-    QMAKE_POST_LINK += $$QMAKE_COPY $$shell_quote($$CERT_SRC\\server.crt) $$shell_quote($$CERT_DST\\server.crt) $$escape_expand(\\n\\t)
-    QMAKE_POST_LINK += $$QMAKE_COPY $$shell_quote($$CERT_SRC\\server.key) $$shell_quote($$CERT_DST\\server.key) $$escape_expand(\\n\\t)
-    QMAKE_POST_LINK += $$QMAKE_COPY $$shell_quote($$CERT_SRC\\ca.crt) $$shell_quote($$CERT_DST\\ca.crt) $$escape_expand(\\n\\t)
+    QMAKE_POST_LINK += $$quote(cmd /c "echo [QtMeetServer] copying TLS certs & if not exist $$shell_quote($$CERT_DST\\) mkdir $$shell_quote($$CERT_DST) & copy /y $$shell_quote($$CERT_SRC\\server.crt) $$shell_quote($$CERT_DST\\) >nul & copy /y $$shell_quote($$CERT_SRC\\server.key) $$shell_quote($$CERT_DST\\) >nul & copy /y $$shell_quote($$CERT_SRC\\ca.crt) $$shell_quote($$CERT_DST\\) >nul & exit /b 0") $$escape_expand(\\n\\t)
 } else {
-    QMAKE_POST_LINK += $$quote(mkdir -p $$CERT_DST && cp -f $$CERT_SRC/server.crt $$CERT_SRC/server.key $$CERT_SRC/ca.crt $$CERT_DST/)
+    QMAKE_POST_LINK += $$quote(mkdir -p $$CERT_DST && cp -f $$CERT_SRC/server.crt $$CERT_SRC/server.key $$CERT_SRC/ca.crt $$CERT_DST/ || true)
 }

@@ -4,6 +4,42 @@
 
 namespace qm {
 
+namespace {
+
+struct Anchor
+{
+    int kbps;
+    int width;
+    int height;
+    int fps;
+    int audioBitrate;
+};
+
+constexpr Anchor kAnchors[] = {
+    {500, 640, 360, 10, 16'000},
+    {1200, 854, 480, 15, 24'000},
+    {2500, 1280, 720, 24, 32'000},
+    {4000, 1280, 720, 30, 48'000},
+};
+
+int lerpInt(int a, int b, double t)
+{
+    return int(qRound(a + (b - a) * t));
+}
+
+const Anchor &geometryAnchorForKbps(int kbps)
+{
+    if (kbps < 800)
+        return kAnchors[0];
+    if (kbps < 1800)
+        return kAnchors[1];
+    if (kbps < 3200)
+        return kAnchors[2];
+    return kAnchors[3];
+}
+
+} // namespace
+
 EncoderConfig BandwidthProfile::videoConfig() const
 {
     EncoderConfig vc;
@@ -42,59 +78,48 @@ int BandwidthProfile::clampTier(int tier)
 
 BandwidthProfile BandwidthProfile::fromTier(int tier)
 {
-    BandwidthProfile p;
-    p.tier = clampTier(tier);
-    switch (p.tier) {
-    case 0: // Low ~500 kbps
-        p.videoBitrate = 500'000;
-        p.width = 640;
-        p.height = 360;
-        p.fps = 10;
-        p.gopFrames = 20;
-        p.audioBitrate = 16'000;
-        break;
-    case 2: // High ~2.5 Mbps
-        p.videoBitrate = 2'500'000;
-        p.width = 1280;
-        p.height = 720;
-        p.fps = 24;
-        p.gopFrames = 48;
-        p.audioBitrate = 32'000;
-        break;
-    case 3: // Ultra ~4 Mbps
-        p.videoBitrate = 4'000'000;
-        p.width = 1280;
-        p.height = 720;
-        p.fps = 30;
-        p.gopFrames = 60;
-        p.audioBitrate = 48'000;
-        break;
-    case 1: // Medium ~1.2 Mbps
-    default:
-        p.videoBitrate = 1'200'000;
-        p.width = 854;
-        p.height = 480;
-        p.fps = 15;
-        p.gopFrames = 30;
-        p.audioBitrate = 24'000;
-        break;
-    }
-    p.audioSampleRate = 48000;
-    p.audioChannels = 1;
-    return p;
+    return fromVideoBitrateKbps(kAnchors[clampTier(tier)].kbps);
 }
 
 BandwidthProfile BandwidthProfile::fromVideoBitrateKbps(int kbps)
 {
+    BandwidthProfile p;
+    p.audioSampleRate = 48000;
+    p.audioChannels = 1;
+
     if (kbps <= 0)
-        return fromTier(1);
-    if (kbps < 800)
-        return fromTier(0);
-    if (kbps < 1800)
-        return fromTier(1);
-    if (kbps < 3200)
-        return fromTier(2);
-    return fromTier(3);
+        kbps = 1200;
+    kbps = qBound(200, kbps, 8000);
+
+    // Continuous bitrate from the slider…
+    p.videoBitrate = kbps * 1000;
+
+    // …but stable WxH/fps steps so dragging does not thrash the encoder.
+    const Anchor &geo = geometryAnchorForKbps(kbps);
+    p.width = geo.width;
+    p.height = geo.height;
+    p.fps = geo.fps;
+    p.gopFrames = qMax(10, p.fps * 2);
+
+    // Audio bitrate eases between neighboring anchors.
+    if (kbps <= kAnchors[0].kbps) {
+        p.audioBitrate = kAnchors[0].audioBitrate;
+        p.tier = 0;
+    } else if (kbps >= kAnchors[3].kbps) {
+        p.audioBitrate = kAnchors[3].audioBitrate;
+        p.tier = 3;
+    } else {
+        int hi = 1;
+        while (hi < 3 && kbps > kAnchors[hi].kbps)
+            ++hi;
+        const Anchor &a = kAnchors[hi - 1];
+        const Anchor &b = kAnchors[hi];
+        const double t = double(kbps - a.kbps) / double(b.kbps - a.kbps);
+        p.audioBitrate = lerpInt(a.audioBitrate, b.audioBitrate, t);
+        p.tier = (t < 0.5) ? (hi - 1) : hi;
+    }
+
+    return p;
 }
 
 } // namespace qm

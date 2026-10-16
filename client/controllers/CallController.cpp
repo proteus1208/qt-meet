@@ -3,6 +3,7 @@
 #include <QAudioDevice>
 #include <QFutureWatcher>
 #include <QMediaDevices>
+#include <QtGlobal>
 
 #include "common/EnvelopeFactory.h"
 #include "common/Ids.h"
@@ -10,6 +11,7 @@
 #include "controllers/SessionController.h"
 #include "core/CallEngine.h"
 #include "core/NetworkClient.h"
+#include "media/BandwidthProfile.h"
 #include "media/MediaSource.h"
 #include "models/ParticipantModel.h"
 
@@ -41,6 +43,17 @@ CallController::CallController(NetworkClient *network, SessionController *sessio
         });
     }
     refreshDevices();
+
+    m_bandwidthTimer = new QTimer(this);
+    m_bandwidthTimer->setSingleShot(true);
+    m_bandwidthTimer->setInterval(250);
+    connect(m_bandwidthTimer, &QTimer::timeout, this, [this] {
+        applyBandwidth();
+        if (m_state == State::Watching)
+            postChannelBandwidth();
+        else
+            postMediaState();
+    });
 }
 
 CallController::State CallController::state() const
@@ -273,37 +286,56 @@ void CallController::setSpeakerIndex(int index)
     Q_EMIT deviceSelectionChanged();
 }
 
+int CallController::bandwidthKbps() const
+{
+    return m_bandwidthKbps;
+}
+
+void CallController::setBandwidthKbps(int kbps)
+{
+    const int clamped = qBound(bandwidthMinKbps(), kbps, bandwidthMaxKbps());
+    if (clamped == m_bandwidthKbps)
+        return;
+    m_bandwidthKbps = clamped;
+    Q_EMIT bandwidthChanged();
+    scheduleBandwidthApply();
+}
+
+int CallController::bandwidthMinKbps() const
+{
+    return 200;
+}
+
+int CallController::bandwidthMaxKbps() const
+{
+    return 4000;
+}
+
+QString CallController::bandwidthLabel() const
+{
+    const BandwidthProfile profile = BandwidthProfile::fromVideoBitrateKbps(m_bandwidthKbps);
+    if (m_bandwidthKbps >= 1000) {
+        return QStringLiteral("%1×%2 @ %3 fps · %4 Mbps")
+            .arg(profile.width)
+            .arg(profile.height)
+            .arg(profile.fps)
+            .arg(m_bandwidthKbps / 1000.0, 0, 'f', 1);
+    }
+    return QStringLiteral("%1×%2 @ %3 fps · %4 kbps")
+        .arg(profile.width)
+        .arg(profile.height)
+        .arg(profile.fps)
+        .arg(m_bandwidthKbps);
+}
+
 int CallController::bandwidthIndex() const
 {
-    return m_bandwidthIndex;
+    return BandwidthProfile::fromVideoBitrateKbps(m_bandwidthKbps).tier;
 }
 
 void CallController::setBandwidthIndex(int index)
 {
-    if (index < 0 || index > 3 || index == m_bandwidthIndex)
-        return;
-    m_bandwidthIndex = index;
-    applyBandwidth();
-    if (m_state == State::Watching)
-        postChannelBandwidth();
-    else
-        postMediaState();
-    Q_EMIT bandwidthChanged();
-}
-
-QStringList CallController::bandwidthLabels() const
-{
-    return {
-        QStringLiteral("Low — 640×360 @ 10 fps (500 kbps)"),
-        QStringLiteral("Medium — 854×480 @ 15 fps (1.2 Mbps)"),
-        QStringLiteral("High — 1280×720 @ 24 fps (2.5 Mbps)"),
-        QStringLiteral("Ultra — 1280×720 @ 30 fps (4 Mbps)"),
-    };
-}
-
-int CallController::bandwidthKbps() const
-{
-    return bandwidthKbpsForIndex(m_bandwidthIndex);
+    setBandwidthKbps(bandwidthKbpsForIndex(index));
 }
 
 int CallController::bandwidthKbpsForIndex(int index)
@@ -325,8 +357,20 @@ void CallController::applyBandwidth()
 {
     if (!m_engine)
         return;
-    // Drive the full profile (WxH / fps / audio bitrate) from the selected tier.
-    m_engine->setTargetVideoBitrate(bandwidthKbps() * 1000);
+    m_engine->setTargetVideoBitrate(m_bandwidthKbps * 1000);
+}
+
+void CallController::scheduleBandwidthApply()
+{
+    if (m_bandwidthTimer)
+        m_bandwidthTimer->start();
+    else {
+        applyBandwidth();
+        if (m_state == State::Watching)
+            postChannelBandwidth();
+        else
+            postMediaState();
+    }
 }
 
 void CallController::postChannelBandwidth()
@@ -336,7 +380,7 @@ void CallController::postChannelBandwidth()
     proto::Envelope env = EnvelopeFactory::request();
     auto *req = env.mutable_channel_bandwidth();
     req->set_channel_id(m_sessionId.toStdString());
-    req->set_bandwidth_kbps(uint32_t(bandwidthKbps()));
+    req->set_bandwidth_kbps(uint32_t(m_bandwidthKbps));
     m_network->post(env);
 }
 
@@ -682,9 +726,9 @@ void CallController::leaveChannel()
     Q_EMIT callEnded(QStringLiteral("left-channel"));
 }
 
-void CallController::setChannelBandwidth(int bandwidthIndex)
+void CallController::setChannelBandwidth(int bandwidthKbps)
 {
-    setBandwidthIndex(bandwidthIndex);
+    setBandwidthKbps(bandwidthKbps);
 }
 
 void CallController::attachVideoSink(qint64 userId, QVideoSink *sink)

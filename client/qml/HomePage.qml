@@ -964,11 +964,20 @@ Page {
                             font.pixelSize: 12
                             font.bold: true
                         }
-                        ComboBox {
+                        Label {
                             Layout.fillWidth: true
-                            model: Call.bandwidthLabels
-                            currentIndex: Call.bandwidthIndex
-                            onActivated: Call.bandwidthIndex = index
+                            wrapMode: Text.WordWrap
+                            color: page.theme.textMuted
+                            font.pixelSize: 11
+                            text: Call.bandwidthLabel
+                        }
+                        Slider {
+                            Layout.fillWidth: true
+                            from: Call.bandwidthMinKbps
+                            to: Call.bandwidthMaxKbps
+                            stepSize: 50
+                            value: Call.bandwidthKbps
+                            onMoved: Call.bandwidthKbps = Math.round(value)
                         }
                         Label {
                             Layout.fillWidth: true

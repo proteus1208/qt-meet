@@ -4,6 +4,7 @@
 #include <QList>
 #include <QObject>
 #include <QStringList>
+#include <QTimer>
 #include <QVariantList>
 #include <QVideoSink>
 
@@ -46,9 +47,11 @@ class CallController : public QObject
     Q_PROPERTY(int cameraIndex READ videoIndex WRITE setVideoIndex NOTIFY deviceSelectionChanged)
     Q_PROPERTY(int microphoneIndex READ microphoneIndex WRITE setMicrophoneIndex NOTIFY deviceSelectionChanged)
     Q_PROPERTY(int speakerIndex READ speakerIndex WRITE setSpeakerIndex NOTIFY deviceSelectionChanged)
+    Q_PROPERTY(int bandwidthKbps READ bandwidthKbps WRITE setBandwidthKbps NOTIFY bandwidthChanged)
+    Q_PROPERTY(int bandwidthMinKbps READ bandwidthMinKbps CONSTANT)
+    Q_PROPERTY(int bandwidthMaxKbps READ bandwidthMaxKbps CONSTANT)
+    Q_PROPERTY(QString bandwidthLabel READ bandwidthLabel NOTIFY bandwidthChanged)
     Q_PROPERTY(int bandwidthIndex READ bandwidthIndex WRITE setBandwidthIndex NOTIFY bandwidthChanged)
-    Q_PROPERTY(QStringList bandwidthLabels READ bandwidthLabels CONSTANT)
-    Q_PROPERTY(int bandwidthKbps READ bandwidthKbps NOTIFY bandwidthChanged)
 
 public:
     enum class State { Idle, Outgoing, Incoming, InCall, InMeeting, Watching };
@@ -88,10 +91,13 @@ public:
     int         speakerIndex() const;
     void        setSpeakerIndex(int index);
 
-    int         bandwidthIndex() const;
-    void        setBandwidthIndex(int index);
-    QStringList bandwidthLabels() const;
-    int         bandwidthKbps() const;
+    int     bandwidthKbps() const;
+    void    setBandwidthKbps(int kbps);
+    int     bandwidthMinKbps() const;
+    int     bandwidthMaxKbps() const;
+    QString bandwidthLabel() const;
+    int     bandwidthIndex() const;
+    void    setBandwidthIndex(int index);
 
     Q_INVOKABLE void refreshDevices();
     Q_INVOKABLE void callUser(qint64 userId, const QString &displayName, bool video);
@@ -106,7 +112,7 @@ public:
     Q_INVOKABLE void refreshChannels();
     Q_INVOKABLE void joinChannel(const QString &channelId);
     Q_INVOKABLE void leaveChannel();
-    Q_INVOKABLE void setChannelBandwidth(int bandwidthIndex);
+    Q_INVOKABLE void setChannelBandwidth(int bandwidthKbps);
 
     Q_INVOKABLE void attachVideoSink(qint64 userId, QVideoSink *sink);
     Q_INVOKABLE void detachVideoSink(qint64 userId);
@@ -146,6 +152,7 @@ private:
     void applySelectedDevices();
     void applyBandwidth();
     void postChannelBandwidth();
+    void scheduleBandwidthApply();
     void upsertChannelInfo(const proto::ChannelInfo &info);
     void removeChannelInfo(const QString &channelId);
     static int bandwidthKbpsForIndex(int index);
@@ -177,7 +184,8 @@ private:
     int                m_videoIndex = 0;
     int                m_microphoneIndex = 0;
     int                m_speakerIndex = 0;
-    int                m_bandwidthIndex = 1; // Medium (1200 kbps)
+    int                m_bandwidthKbps = 1200;
+    QTimer            *m_bandwidthTimer = nullptr;
     QList<proto::RtcSignal> m_pendingSignals;
 };
 

@@ -328,6 +328,8 @@ void AdminController::persistSettings()
         s.keyFile = previous.keyFile;
     if (s.dataDir.isEmpty())
         s.dataDir = previous.dataDir;
+    // Always persist the current hosted folder (including clearing it).
+    s.hostedFolder = m_server->hostedFolder();
     cfg.setServer(s);
     cfg.save(m_configPath);
 }

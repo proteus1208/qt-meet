@@ -78,11 +78,32 @@ Page {
             font.pixelSize: 13
             font.bold: true
         }
-        ComboBox {
+        Label {
             Layout.fillWidth: true
-            model: Call.bandwidthLabels
-            currentIndex: Call.bandwidthIndex
-            onActivated: Call.bandwidthIndex = index
+            color: theme.textMuted
+            font.pixelSize: 12
+            text: Call.bandwidthLabel
+        }
+        RowLayout {
+            Layout.fillWidth: true
+            Label {
+                text: qsTr("Low")
+                color: theme.textDim
+                font.pixelSize: 11
+            }
+            Slider {
+                Layout.fillWidth: true
+                from: Call.bandwidthMinKbps
+                to: Call.bandwidthMaxKbps
+                stepSize: 50
+                value: Call.bandwidthKbps
+                onMoved: Call.bandwidthKbps = Math.round(value)
+            }
+            Label {
+                text: qsTr("High")
+                color: theme.textDim
+                font.pixelSize: 11
+            }
         }
 
         Label {

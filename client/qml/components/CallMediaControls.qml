@@ -137,15 +137,28 @@ Item {
                 wrapMode: Text.Wrap
                 color: theme.textMuted
                 font.pixelSize: 12
-                text: root.watchMode
-                      ? qsTr("Preferred channel quality (resolution, fps, bitrate) sent to the server.")
-                      : qsTr("Your upload quality: resolution, frame rate, and audio bitrate.")
+                text: Call.bandwidthLabel
             }
-            ComboBox {
+            RowLayout {
                 Layout.fillWidth: true
-                model: Call.bandwidthLabels
-                currentIndex: Call.bandwidthIndex
-                onActivated: Call.bandwidthIndex = index
+                Label {
+                    text: qsTr("Low")
+                    color: theme.textDim
+                    font.pixelSize: 11
+                }
+                Slider {
+                    Layout.fillWidth: true
+                    from: Call.bandwidthMinKbps
+                    to: Call.bandwidthMaxKbps
+                    stepSize: 50
+                    value: Call.bandwidthKbps
+                    onMoved: Call.bandwidthKbps = Math.round(value)
+                }
+                Label {
+                    text: qsTr("High")
+                    color: theme.textDim
+                    font.pixelSize: 11
+                }
             }
 
             Label {
