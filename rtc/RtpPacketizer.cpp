@@ -19,11 +19,12 @@ std::shared_ptr<rtc::MediaHandler> RtpPacketizer::createChain(RtpCodec codec,
     const int pt = payloadType(codec);
     const uint32_t clock = clockRate(codec);
     auto rtpConfig = std::make_shared<RtpPacketizationConfig>(ssrc, cname.toStdString(), pt, clock);
-    rtpConfig->maxFragmentSize = mtu > 200 ? unsigned(mtu - 100) : 1000;
+    // Newer libdatachannel: max fragment size is a H264RtpPacketizer ctor arg (not on config).
+    const size_t maxFragment = mtu > 200 ? size_t(mtu - 100) : size_t(1000);
 
     if (codec == RtpCodec::H264) {
         auto packetizer = std::make_shared<H264RtpPacketizer>(NalUnit::Separator::StartSequence,
-                                                              rtpConfig);
+                                                              rtpConfig, maxFragment);
         auto sr = std::make_shared<RtcpSrReporter>(rtpConfig);
         packetizer->addToChain(sr);
         auto nack = std::make_shared<RtcpNackResponder>();

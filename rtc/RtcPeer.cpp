@@ -53,7 +53,8 @@ void RtcPeer::setupCallbacks()
         signal.set_session_id(m_sessionId.toStdString());
         auto *c = signal.mutable_candidate();
         c->set_candidate(std::string(candidate));
-        c->set_mid(candidate.mid().value_or(""));
+        // Newer libdatachannel: mid() returns std::string (not optional).
+        c->set_mid(candidate.mid());
         Q_EMIT localSignal(signal);
     });
 
@@ -86,10 +87,14 @@ void RtcPeer::setupCallbacks()
     m_pc->onTrack([this](std::shared_ptr<rtc::Track> track) {
         const int id = m_nextTrackId++;
         m_tracks.insert(id, track);
-        track->onMessage([this, id](rtc::binary data) {
-            const QByteArray packet(reinterpret_cast<const char *>(data.data()), int(data.size()));
-            Q_EMIT rtpReceived(id, packet);
-        });
+        // Newer API: onMessage(binaryCallback, stringCallback) — two args required.
+        track->onMessage(
+            [this, id](rtc::binary data) {
+                const QByteArray packet(reinterpret_cast<const char *>(data.data()),
+                                        int(data.size()));
+                Q_EMIT rtpReceived(id, packet);
+            },
+            nullptr);
         track->onOpen([this, id] { Q_EMIT trackOpened(id); });
         track->onClosed([this, id] {
             Q_EMIT trackClosed(id);
@@ -179,10 +184,12 @@ int RtcPeer::addTrack(TrackKind kind, const QString &mid, quint32 ssrc, Directio
             track->setMediaHandler(handler);
     }
 
-    track->onMessage([this, id](rtc::binary data) {
-        const QByteArray packet(reinterpret_cast<const char *>(data.data()), int(data.size()));
-        Q_EMIT rtpReceived(id, packet);
-    });
+    track->onMessage(
+        [this, id](rtc::binary data) {
+            const QByteArray packet(reinterpret_cast<const char *>(data.data()), int(data.size()));
+            Q_EMIT rtpReceived(id, packet);
+        },
+        nullptr);
     track->onOpen([this, id] { Q_EMIT trackOpened(id); });
     track->onClosed([this, id] {
         Q_EMIT trackClosed(id);
