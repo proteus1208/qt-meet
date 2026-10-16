@@ -16,10 +16,10 @@ win32:!isEmpty(DATACHANNEL_DIR) {
 }
 
 win32:isEmpty(DATACHANNEL_DIR) {
-    exists(C:/libs/libdatachannel-mingw64/include/rtc): \
-        DATACHANNEL_DIR = C:/libs/libdatachannel-mingw64
-    else: exists(C:/libs/libdatachannel-qtmingw/include/rtc): \
+    exists(C:/libs/libdatachannel-qtmingw/include/rtc): \
         DATACHANNEL_DIR = C:/libs/libdatachannel-qtmingw
+    else: exists(C:/libs/libdatachannel-mingw64/include/rtc): \
+        DATACHANNEL_DIR = C:/libs/libdatachannel-mingw64
     else: exists(D:/libs/libdatachannel-mingw64/include/rtc): \
         DATACHANNEL_DIR = D:/libs/libdatachannel-mingw64
 }
