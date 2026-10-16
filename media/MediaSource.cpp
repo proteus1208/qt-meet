@@ -27,8 +27,22 @@ void ensureFfmpeg()
     if (g_ffmpegInitialized)
         return;
     avformat_network_init();
+    // Always register devices when the symbol exists (older FFmpeg). Newer builds
+    // register at load time if libavdevice was linked — still probe for gdigrab.
 #if LIBAVDEVICE_VERSION_INT < AV_VERSION_INT(59, 0, 100)
     avdevice_register_all();
+#endif
+#if defined(Q_OS_WIN)
+    const bool hasGdigrab = av_find_input_format("gdigrab") != nullptr;
+    const bool hasDdagrab = av_find_input_format("ddagrab") != nullptr;
+    const bool hasDshow = av_find_input_format("dshow") != nullptr;
+    qCInfo(lcMedia) << "FFmpeg devices: gdigrab" << hasGdigrab << "ddagrab" << hasDdagrab
+                     << "dshow" << hasDshow
+                     << "avformat" << avformat_version()
+                     << "avdevice" << avdevice_version();
+    if (!hasGdigrab && !hasDdagrab)
+        qCWarning(lcMedia) << "No screen-grab demuxer in loaded FFmpeg — copy your "
+                              "FFMPEG_DIR\\bin\\*.dll next to the exe (not Qt's FFmpeg)";
 #endif
     g_ffmpegInitialized = true;
 }
@@ -72,8 +86,25 @@ bool MediaSource::open(const SourceSpec &spec)
         av_dict_set(&opts, "reconnect", "1", 0);
 
     const AVInputFormat *iformat = nullptr;
-    if (!spec.format.isEmpty())
+    if (!spec.format.isEmpty()) {
         iformat = av_find_input_format(spec.format.toUtf8().constData());
+        if (!iformat) {
+            // Prefer DXGI grab when present (FFmpeg 6+), else report missing gdigrab.
+            if (spec.kind == SourceKind::Screen) {
+                iformat = av_find_input_format("ddagrab");
+                if (iformat)
+                    qCInfo(lcMedia) << "Using ddagrab instead of" << spec.format;
+            }
+            if (!iformat) {
+                m_error = QStringLiteral("FFmpeg input format '%1' not found (is libavdevice/gdigrab "
+                                         "in the FFmpeg DLLs next to the exe?)")
+                              .arg(spec.format);
+                av_dict_free(&opts);
+                qCWarning(lcMedia) << "MediaSource open failed:" << m_error << spec.location;
+                return false;
+            }
+        }
+    }
 
     AVFormatContext *fmt = avformat_alloc_context();
     if (!fmt) {
@@ -84,13 +115,18 @@ bool MediaSource::open(const SourceSpec &spec)
     fmt->interrupt_callback.callback = &MediaSource::interruptCallback;
     fmt->interrupt_callback.opaque = this;
 
-    const QByteArray url = spec.location.toUtf8();
+    // gdigrab / ddagrab expect the device name as URL ("desktop" / "0").
+    QByteArray url = spec.location.toUtf8();
+    if (iformat && QString::fromLatin1(iformat->name) == QLatin1String("ddagrab")
+        && (url.isEmpty() || url == "desktop"))
+        url = QByteArrayLiteral("0");
+
     int err = avformat_open_input(&fmt, url.constData(), iformat, &opts);
     av_dict_free(&opts);
     if (err < 0) {
         m_error = errorString(err);
         avformat_free_context(fmt);
-        qCWarning(lcMedia) << "MediaSource open failed:" << m_error << spec.location;
+        qCWarning(lcMedia) << "MediaSource open failed:" << m_error << spec.format << spec.location;
         return false;
     }
 
@@ -430,12 +466,22 @@ SourceSpec MediaSource::defaultMicrophone()
 
 SourceSpec MediaSource::defaultScreen()
 {
+    ensureFfmpeg();
     SourceSpec screen;
     screen.kind = SourceKind::Screen;
     screen.displayName = QStringLiteral("Entire screen");
 #if defined(Q_OS_WIN)
-    screen.format = QStringLiteral("gdigrab");
-    screen.location = QStringLiteral("desktop");
+    // Prefer gdigrab; fall back to ddagrab (DXGI) on newer FFmpeg builds.
+    if (av_find_input_format("gdigrab")) {
+        screen.format = QStringLiteral("gdigrab");
+        screen.location = QStringLiteral("desktop");
+    } else if (av_find_input_format("ddagrab")) {
+        screen.format = QStringLiteral("ddagrab");
+        screen.location = QStringLiteral("0");
+    } else {
+        screen.format = QStringLiteral("gdigrab");
+        screen.location = QStringLiteral("desktop");
+    }
     screen.options.insert(QStringLiteral("framerate"), QStringLiteral("15"));
 #elif defined(Q_OS_LINUX)
     screen.format = QStringLiteral("x11grab");
