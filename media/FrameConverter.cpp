@@ -21,7 +21,9 @@ bool FrameConverter::isDirectlyMappable(int pixelFormat)
     case AV_PIX_FMT_YUVJ420P:
     case AV_PIX_FMT_NV12:
     case AV_PIX_FMT_BGRA:
+    case AV_PIX_FMT_BGR0:
     case AV_PIX_FMT_RGBA:
+    case AV_PIX_FMT_RGB0:
         return true;
     default:
         return false;
@@ -37,8 +39,10 @@ static QVideoFrameFormat::PixelFormat toQtFormat(int avFormat)
     case AV_PIX_FMT_NV12:
         return QVideoFrameFormat::Format_NV12;
     case AV_PIX_FMT_BGRA:
+    case AV_PIX_FMT_BGR0:
         return QVideoFrameFormat::Format_BGRA8888;
     case AV_PIX_FMT_RGBA:
+    case AV_PIX_FMT_RGB0:
         return QVideoFrameFormat::Format_RGBA8888;
     default:
         return QVideoFrameFormat::Format_Invalid;
@@ -111,7 +115,10 @@ QVideoFrame FrameConverter::toVideoFrame(const AVFrame *frame)
             videoFrame.unmap();
             return {};
         }
-        const int bpp = (format == AV_PIX_FMT_BGRA || format == AV_PIX_FMT_RGBA) ? 4 : 3;
+        const int bpp = (format == AV_PIX_FMT_BGRA || format == AV_PIX_FMT_BGR0
+                         || format == AV_PIX_FMT_RGBA || format == AV_PIX_FMT_RGB0)
+                            ? 4
+                            : 3;
         copyPlane(videoFrame.bits(0), videoFrame.bytesPerLine(0), src->data[0], src->linesize[0],
                   src->height, src->width * bpp);
     }

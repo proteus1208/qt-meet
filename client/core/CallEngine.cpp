@@ -431,6 +431,11 @@ void CallEngine::setSpeakerId(const QString &deviceId)
 
 void CallEngine::setScreenSharing(bool enabled)
 {
+    qCInfo(lcRtc) << "setScreenSharing request" << enabled << "current" << m_screenSharing
+                   << "active" << isActive() << "capture" << (m_capture != nullptr)
+                   << "previewSink" << (m_localPreview != nullptr)
+                   << "cameraEnabled" << m_cameraEnabled;
+
     if (m_screenSharing == enabled)
         return;
 
@@ -445,42 +450,54 @@ void CallEngine::setScreenSharing(bool enabled)
         }
         m_screenSharing = enabled;
         Q_EMIT screenSharingChanged(m_screenSharing);
+        if (enabled) {
+            qCWarning(lcRtc) << "Screen share armed, but no active call — local preview starts after you are in a call";
+            Q_EMIT errorOccurred(
+                QStringLiteral("Join or start a call first, then press Share screen to see preview"));
+        }
         return;
     }
 
     if (enabled) {
-        if (m_screen.location.isEmpty()) {
+        if (m_screen.location.isEmpty())
             m_screen = MediaSource::defaultScreen();
-            if (m_screen.location.isEmpty()) {
-                Q_EMIT errorOccurred(QStringLiteral("Screen capture is not available on this platform"));
-                return;
-            }
+        if (m_screen.location.isEmpty()) {
+            Q_EMIT errorOccurred(QStringLiteral("Screen capture is not available on this platform"));
+            return;
         }
         if (!ensureVideoPipeline()) {
             Q_EMIT errorOccurred(QStringLiteral("Cannot start video track for screen share"));
             return;
         }
         m_cameraEnabled = true;
-        m_screenSharing = true;
         if (m_capture) {
-            m_capture->setVideoEnabled(true);
             if (m_localPreview)
                 m_capture->setPreviewSink(m_localPreview);
-            if (!m_capture->reopenVideo(m_screen)) {
-                m_screenSharing = false;
-                Q_EMIT errorOccurred(QStringLiteral("Failed to open screen capture device"));
+            // Open screen directly (do not start the camera first on audio-only calls).
+            if (!m_capture->reopenVideo(m_screen, true)) {
+                qCWarning(lcRtc) << "reopenVideo(screen) failed" << m_screen.format
+                                 << m_screen.location;
+                Q_EMIT errorOccurred(QStringLiteral("Failed to open screen capture (gdigrab/desktop)"));
                 Q_EMIT screenSharingChanged(false);
                 return;
             }
+        } else {
+            qCWarning(lcRtc) << "No CaptureSource after ensureVideoPipeline";
+            Q_EMIT errorOccurred(QStringLiteral("Capture pipeline missing"));
+            return;
         }
-        qCInfo(lcRtc) << "Screen sharing started" << m_screen.format << m_screen.location;
+        m_screenSharing = true;
+        qCInfo(lcRtc) << "Screen sharing started" << m_screen.format << m_screen.location
+                       << "preview" << (m_localPreview != nullptr);
     } else {
         m_screenSharing = false;
         if (m_capture) {
             if (m_localPreview)
                 m_capture->setPreviewSink(m_localPreview);
-            m_capture->reopenVideo(m_camera);
-            m_capture->setVideoEnabled(m_cameraEnabled);
+            if (m_cameraEnabled && !m_camera.location.isEmpty())
+                m_capture->reopenVideo(m_camera, true);
+            else
+                m_capture->setVideoEnabled(false);
         }
         qCInfo(lcRtc) << "Screen sharing stopped";
     }

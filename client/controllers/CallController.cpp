@@ -156,6 +156,9 @@ bool CallController::screenSharing() const
 
 void CallController::setScreenSharing(bool enabled)
 {
+    qCInfo(lcRtc) << "CallController::setScreenSharing" << enabled << "state" << int(m_state)
+                   << "engine" << (m_engine != nullptr);
+
     if (enabled && !m_cameraEnabled)
         setCameraEnabled(true);
 

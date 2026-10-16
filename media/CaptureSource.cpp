@@ -38,22 +38,29 @@ public Q_SLOTS:
         {
             QMutexLocker locker(&m_mutex);
             m_stop = false;
+            qCInfo(lcMedia) << "CaptureWorker open" << (m_isVideo ? "video" : "audio")
+                            << m_spec.format << m_spec.location << m_spec.displayName;
             if (!m_source.open(m_spec)) {
+                qCWarning(lcMedia) << "CaptureWorker open failed:" << m_source.lastError()
+                                   << m_spec.format << m_spec.location;
                 Q_EMIT failed(m_source.lastError());
                 return;
             }
             const MediaType type = m_isVideo ? MediaType::Video : MediaType::Audio;
             const int index = m_source.bestStream(type);
             if (index < 0) {
+                qCWarning(lcMedia) << "CaptureWorker: no stream in source" << m_spec.location;
                 Q_EMIT failed(QStringLiteral("No stream in capture source"));
                 return;
             }
             m_stream = index;
             if (!m_decoder.open(m_source.codecParameters(index),
                                 m_isVideo ? m_policy : HwPolicy::SoftwareOnly)) {
+                qCWarning(lcMedia) << "CaptureWorker: decoder open failed" << m_spec.location;
                 Q_EMIT failed(QStringLiteral("Cannot open capture decoder"));
                 return;
             }
+            qCInfo(lcMedia) << "CaptureWorker running stream" << index << m_spec.location;
         }
         loop();
     }
@@ -157,15 +164,28 @@ bool CaptureSource::isRunning() const
     return m_running;
 }
 
-bool CaptureSource::reopenVideo(const SourceSpec &video)
+bool CaptureSource::reopenVideo(const SourceSpec &video, bool enableVideo)
 {
     m_videoSpec = video;
+    if (enableVideo)
+        m_videoEnabled = true;
+
+    qCInfo(lcMedia) << "reopenVideo" << video.format << video.location
+                    << "running" << m_running << "videoEnabled" << m_videoEnabled
+                    << "preview" << (m_preview != nullptr);
+
+    if (video.location.isEmpty()) {
+        qCWarning(lcMedia) << "reopenVideo: empty location";
+        stopVideo();
+        return false;
+    }
     if (!m_running)
-        return !video.location.isEmpty();
+        return true;
+
     stopVideo();
     if (m_videoEnabled)
         startVideo();
-    return true;
+    return m_videoThread != nullptr;
 }
 
 bool CaptureSource::reopenAudio(const SourceSpec &audio)
@@ -257,25 +277,44 @@ void CaptureSource::stopAudio()
 
 void CaptureSource::startVideo()
 {
-    if (m_videoThread || m_videoSpec.location.isEmpty() || !m_videoEnabled)
+    if (m_videoThread || m_videoSpec.location.isEmpty() || !m_videoEnabled) {
+        qCInfo(lcMedia) << "startVideo skipped thread" << (m_videoThread != nullptr)
+                        << "locEmpty" << m_videoSpec.location.isEmpty()
+                        << "enabled" << m_videoEnabled;
         return;
+    }
+
+    qCInfo(lcMedia) << "startVideo" << m_videoSpec.format << m_videoSpec.location
+                    << m_videoSpec.displayName << "preview" << (m_preview != nullptr);
 
     m_videoThread = new QThread(this);
     m_videoWorker = new CaptureWorker(true);
-    m_videoWorker->configure(m_videoSpec, HwPolicy::Auto);
+    m_videoWorker->configure(m_videoSpec, HwPolicy::SoftwareOnly);
     m_videoWorker->moveToThread(m_videoThread);
     connect(m_videoThread, &QThread::started, m_videoWorker, &CaptureWorker::start);
     connect(m_videoThread, &QThread::finished, m_videoWorker, &QObject::deleteLater);
     connect(m_videoWorker, &CaptureWorker::frameReady, this, [this](const FrameRef &frame) {
         Q_EMIT videoFrame(frame);
-        if (m_preview && frame) {
-            FrameConverter converter;
-            const QVideoFrame vf = converter.toVideoFrame(frame.get());
-            if (vf.isValid())
-                m_preview->setVideoFrame(vf);
+        if (!m_preview || !frame)
+            return;
+        FrameConverter converter;
+        const QVideoFrame vf = converter.toVideoFrame(frame.get());
+        if (!vf.isValid()) {
+            static int convertFails = 0;
+            if ((convertFails++ % 60) == 0)
+                qCWarning(lcMedia) << "preview convert failed format"
+                                   << (frame ? frame->format : -1) << "count" << convertFails;
+            return;
         }
+        m_preview->setVideoFrame(vf);
+        static int previewFrames = 0;
+        if ((previewFrames++ % 60) == 0)
+            qCInfo(lcMedia) << "local preview frames" << previewFrames << vf.size();
     });
-    connect(m_videoWorker, &CaptureWorker::failed, this, &CaptureSource::errorOccurred);
+    connect(m_videoWorker, &CaptureWorker::failed, this, [this](const QString &message) {
+        qCWarning(lcMedia) << "video capture failed:" << message;
+        Q_EMIT errorOccurred(message);
+    });
     m_videoThread->start();
 }
 

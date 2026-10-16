@@ -27,12 +27,14 @@ public:
     bool isRunning() const;
 
     /// Hot-swap the live video device (camera ↔ screen) without touching audio.
-    bool reopenVideo(const SourceSpec &video);
+    /// If \a enableVideo is set, video capture is turned on before (re)start.
+    bool reopenVideo(const SourceSpec &video, bool enableVideo = false);
     /// Hot-swap the live microphone.
     bool reopenAudio(const SourceSpec &audio);
 
     void setVideoEnabled(bool enabled);
     void setAudioEnabled(bool enabled);
+    bool isVideoEnabled() const { return m_videoEnabled; }
     void setPreviewSink(QVideoSink *sink);
     void setOutputSize(int width, int height, int fps);   // applied when the device allows it
 
