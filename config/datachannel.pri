@@ -8,15 +8,13 @@ isEmpty(DATACHANNEL_DIR) {
     DEFINES += QM_HAVE_DATACHANNEL
     INCLUDEPATH += $$DATACHANNEL_DIR/include
     !contains(TEMPLATE, lib) {
+        # Shared libdatachannel: link only the import lib. Do NOT add MSYS2
+        # -L.../mingw64|ucrt64/lib for OpenSSL — that pulls a foreign CRT into
+        # Qt MinGW links (_gnu_exception_handler / __emutls). Copy libssl/libcrypto
+        # DLLs next to the exe at runtime instead.
         LIBS += -L$$DATACHANNEL_DIR/lib -ldatachannel
         unix: LIBS += -lssl -lcrypto
-        # Qt MinGW must link MSYS2 mingw64 OpenSSL — never ucrt64 (causes CRT
-        # undefined refs like _gnu_exception_handler / __imp___argc).
-        win32 {
-            LIBS += -lws2_32 -lbcrypt
-            exists(C:/msys64/mingw64/lib): \
-                LIBS += -LC:/msys64/mingw64/lib -lssl -lcrypto
-        }
+        win32: LIBS += -lws2_32 -lbcrypt
         # Copy runtime DLLs next to the app (best-effort).
         win32:!isEmpty(DESTDIR) {
             QMAKE_POST_LINK += $$quote(cmd /c "if exist $$shell_quote($$shell_path($$DATACHANNEL_DIR/bin/libdatachannel.dll)) copy /y $$shell_quote($$shell_path($$DATACHANNEL_DIR/bin/libdatachannel.dll)) $$shell_quote($$shell_path($$DESTDIR)\\) >nul & exit /b 0") $$escape_expand(\\n\\t)
