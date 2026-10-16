@@ -5,6 +5,7 @@
 #include <QString>
 
 class QAction;
+class QEvent;
 class QMenu;
 class QSystemTrayIcon;
 class QWindow;
@@ -31,6 +32,8 @@ public:
     Q_INVOKABLE void showWindow();
     Q_INVOKABLE void hideToTray();
     Q_INVOKABLE void quitApp();
+
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
 Q_SIGNALS:
     void showHotkeyChanged();

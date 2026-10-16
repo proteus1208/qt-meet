@@ -7,10 +7,9 @@
 #include <QIcon>
 #include <QKeySequence>
 #include <QMenu>
+#include <QEvent>
 #include <QPainter>
 #include <QPixmap>
-#include <QQuickCloseEvent>
-#include <QQuickWindow>
 #include <QSystemTrayIcon>
 #include <QWindow>
 
@@ -88,17 +87,23 @@ void DesktopShell::attachWindow(QObject *windowObject)
         window = windowObject ? windowObject->findChild<QWindow *>() : nullptr;
     if (!window)
         return;
+    if (m_window)
+        m_window->removeEventFilter(this);
     m_window = window;
+    // Close button hides to tray instead of quitting (avoids QQuickCloseEvent header).
+    m_window->installEventFilter(this);
+}
 
-    // Close button hides to tray instead of quitting.
-    if (auto *quick = qobject_cast<QQuickWindow *>(m_window)) {
-        QObject::connect(quick, &QQuickWindow::closing, this, [this](QQuickCloseEvent *event) {
-            if (!m_tray || !m_tray->isVisible())
-                return;
+bool DesktopShell::eventFilter(QObject *watched, QEvent *event)
+{
+    if (watched == m_window && event && event->type() == QEvent::Close) {
+        if (m_tray && m_tray->isVisible()) {
             event->ignore();
             hideToTray();
-        }, Qt::UniqueConnection);
+            return true;
+        }
     }
+    return QObject::eventFilter(watched, event);
 }
 
 void DesktopShell::showWindow()
