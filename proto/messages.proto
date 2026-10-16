@@ -308,6 +308,8 @@ message ChannelInfo {
   bool   has_audio     = 5;
   string video_label   = 6;  // human-readable source (e.g. "Camera", "Screen")
   string audio_label   = 7;
+  uint32 viewer_count  = 8;  // current visitors watching
+  uint32 bitrate_kbps  = 9;  // current / configured channel bitrate
 }
 
 message ChannelListReq {}

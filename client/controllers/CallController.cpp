@@ -963,6 +963,8 @@ void CallController::upsertChannelInfo(const proto::ChannelInfo &info)
     row.insert(QStringLiteral("hasAudio"), info.has_audio());
     row.insert(QStringLiteral("videoLabel"), QString::fromStdString(info.video_label()));
     row.insert(QStringLiteral("audioLabel"), QString::fromStdString(info.audio_label()));
+    row.insert(QStringLiteral("viewers"), int(info.viewer_count()));
+    row.insert(QStringLiteral("bitrateKbps"), int(info.bitrate_kbps()));
 
     for (int i = 0; i < m_channels.size(); ++i) {
         if (m_channels.at(i).toMap().value(QStringLiteral("id")).toString() == id) {

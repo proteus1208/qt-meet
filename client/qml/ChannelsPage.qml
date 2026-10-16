@@ -68,15 +68,8 @@ Page {
             wrapMode: Text.Wrap
             color: theme.textMuted
             font.pixelSize: 13
-            text: qsTr("Watch live camera or screen channels published by the server (IPTV-style). Server mode: %1.")
+            text: qsTr("Watch live camera or screen channels published by the server. Delivery: %1.")
                   .arg(Session.transportModeLabel)
-        }
-
-        Label {
-            Layout.fillWidth: true
-            color: theme.textMuted
-            font.pixelSize: 12
-            text: qsTr("Channel quality follows the server default / per-channel bitrate.")
         }
 
         Label {
@@ -92,43 +85,46 @@ Page {
             Layout.fillWidth: true
             Layout.fillHeight: true
             clip: true
-            spacing: 10
+            spacing: 12
             model: Call.channels
 
             delegate: Rectangle {
                 id: row
                 required property var modelData
                 width: ListView.view.width
-                height: col.implicitHeight + 24
+                height: col.implicitHeight + 28
                 radius: theme.radius
                 color: theme.surface
-                border.color: theme.border
+                border.color: row.modelData.running ? theme.success : theme.border
                 border.width: 1
-                opacity: row.modelData.running ? 1.0 : 0.55
+                opacity: row.modelData.running ? 1.0 : 0.7
 
                 ColumnLayout {
                     id: col
                     anchors.left: parent.left
                     anchors.right: parent.right
                     anchors.top: parent.top
-                    anchors.margins: 12
-                    spacing: 8
+                    anchors.margins: 16
+                    spacing: 10
 
                     RowLayout {
                         Layout.fillWidth: true
+                        spacing: 12
                         Label {
                             Layout.fillWidth: true
                             text: row.modelData.name || qsTr("Channel")
                             color: theme.text
-                            font.pixelSize: 16
+                            font.pixelSize: 22
                             font.bold: true
                             elide: Text.ElideRight
                         }
                         Rectangle {
-                            width: liveTxt.implicitWidth + 14
-                            height: 22
-                            radius: 11
+                            width: liveTxt.implicitWidth + 16
+                            height: 26
+                            radius: 13
                             color: row.modelData.running ? "#14532D" : theme.surfaceHover
+                            border.color: row.modelData.running ? theme.success : theme.border
+                            border.width: 1
                             Label {
                                 id: liveTxt
                                 anchors.centerIn: parent
@@ -140,19 +136,40 @@ Page {
                         }
                     }
 
-                    Label {
+                    RowLayout {
                         Layout.fillWidth: true
-                        text: qsTr("Video: %1").arg(row.modelData.videoLabel || "—")
-                        color: theme.textMuted
-                        font.pixelSize: 12
-                        elide: Text.ElideRight
-                    }
-                    Label {
-                        Layout.fillWidth: true
-                        text: qsTr("Audio: %1").arg(row.modelData.audioLabel || "—")
-                        color: theme.textMuted
-                        font.pixelSize: 12
-                        elide: Text.ElideRight
+                        spacing: 16
+                        Label {
+                            text: qsTr("%1 visitors").arg(row.modelData.viewers || 0)
+                            color: theme.text
+                            font.pixelSize: 14
+                            font.bold: true
+                        }
+                        Label {
+                            text: "·"
+                            color: theme.textDim
+                        }
+                        Label {
+                            text: qsTr("%1 kbps").arg(row.modelData.bitrateKbps || "—")
+                            color: theme.text
+                            font.pixelSize: 14
+                            font.bold: true
+                        }
+                        Label {
+                            text: "·"
+                            color: theme.textDim
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            text: {
+                                const v = row.modelData.videoLabel || "—"
+                                const a = row.modelData.audioLabel || "—"
+                                return qsTr("Video %1 · Audio %2").arg(v).arg(a)
+                            }
+                            color: theme.textMuted
+                            font.pixelSize: 13
+                            elide: Text.ElideRight
+                        }
                     }
 
                     Button {

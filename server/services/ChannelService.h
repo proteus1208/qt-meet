@@ -39,6 +39,8 @@ public:
     QVariantList listForAdmin() const;
     QString      addChannel(const QString &name, const SourceSpec &video, const SourceSpec &audio,
                             int bitrateKbps = 0, QString *error = nullptr);
+    bool         updateChannel(const QString &channelId, const QString &name, const SourceSpec &video,
+                               const SourceSpec &audio, int bitrateKbps = 0, QString *error = nullptr);
     bool         removeChannel(const QString &channelId, QString *error = nullptr);
     bool         startChannel(const QString &channelId, QString *error = nullptr);
     bool         stopChannel(const QString &channelId, QString *error = nullptr);

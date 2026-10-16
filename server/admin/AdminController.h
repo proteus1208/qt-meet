@@ -63,10 +63,15 @@ public:
     /// videoIndex / audioIndex: 0 = None, 1..N = device from refreshSources lists.
     Q_INVOKABLE bool addChannel(const QString &name, int videoIndex, int audioIndex,
                                 int bitrateKbps = 0);
+    Q_INVOKABLE bool updateChannel(const QString &channelId, const QString &name, int videoIndex,
+                                   int audioIndex, int bitrateKbps = 0);
     Q_INVOKABLE bool removeChannel(const QString &channelId);
     Q_INVOKABLE bool startChannel(const QString &channelId);
     Q_INVOKABLE bool stopChannel(const QString &channelId);
     Q_INVOKABLE bool setChannelBitrate(const QString &channelId, int bitrateKbps);
+    /// Match saved source location to combo index (0 = None).
+    Q_INVOKABLE int videoSourceIndexForLocation(const QString &location) const;
+    Q_INVOKABLE int audioSourceIndexForLocation(const QString &location) const;
 
 Q_SIGNALS:
     void hostedFolderChanged();

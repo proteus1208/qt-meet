@@ -261,6 +261,36 @@ void AdminController::refreshChannels()
     Q_EMIT channelsChanged();
 }
 
+static bool resolveChannelSources(const QVariantList &videoSources, const QVariantList &audioSources,
+                                  int videoIndex, int audioIndex, SourceSpec *video, SourceSpec *audio,
+                                  QString *error)
+{
+    if (videoIndex > 0) {
+        const int src = videoIndex - 1;
+        if (src < 0 || src >= videoSources.size()) {
+            if (error)
+                *error = QStringLiteral("Pick a camera or screen source.");
+            return false;
+        }
+        *video = sourceFromVariant(videoSources.at(src).toMap());
+    }
+    if (audioIndex > 0) {
+        const int src = audioIndex - 1;
+        if (src < 0 || src >= audioSources.size()) {
+            if (error)
+                *error = QStringLiteral("Pick a microphone or system-audio source.");
+            return false;
+        }
+        *audio = sourceFromVariant(audioSources.at(src).toMap());
+    }
+    if (video->location.isEmpty() && audio->location.isEmpty()) {
+        if (error)
+            *error = QStringLiteral("Pick at least a video or audio source.");
+        return false;
+    }
+    return true;
+}
+
 bool AdminController::addChannel(const QString &name, int videoIndex, int audioIndex,
                                  int bitrateKbps)
 {
@@ -270,27 +300,12 @@ bool AdminController::addChannel(const QString &name, int videoIndex, int audioI
         return false;
     }
 
-    // Combo index 0 = None; 1..N map into m_*Sources.
     SourceSpec video;
     SourceSpec audio;
-    if (videoIndex > 0) {
-        const int src = videoIndex - 1;
-        if (src < 0 || src >= m_videoSources.size()) {
-            Q_EMIT errorOccurred(QStringLiteral("Pick a camera or screen source."));
-            return false;
-        }
-        video = sourceFromVariant(m_videoSources.at(src).toMap());
-    }
-    if (audioIndex > 0) {
-        const int src = audioIndex - 1;
-        if (src < 0 || src >= m_audioSources.size()) {
-            Q_EMIT errorOccurred(QStringLiteral("Pick a microphone or system-audio source."));
-            return false;
-        }
-        audio = sourceFromVariant(m_audioSources.at(src).toMap());
-    }
-    if (video.location.isEmpty() && audio.location.isEmpty()) {
-        Q_EMIT errorOccurred(QStringLiteral("Pick at least a video or audio source."));
+    QString resolveError;
+    if (!resolveChannelSources(m_videoSources, m_audioSources, videoIndex, audioIndex, &video, &audio,
+                               &resolveError)) {
+        Q_EMIT errorOccurred(resolveError);
         return false;
     }
 
@@ -302,6 +317,55 @@ bool AdminController::addChannel(const QString &name, int videoIndex, int audioI
     }
     refreshChannels();
     return true;
+}
+
+bool AdminController::updateChannel(const QString &channelId, const QString &name, int videoIndex,
+                                    int audioIndex, int bitrateKbps)
+{
+    auto *svc = m_server->channels();
+    if (!svc) {
+        Q_EMIT errorOccurred(QStringLiteral("Start the server before editing channels."));
+        return false;
+    }
+
+    SourceSpec video;
+    SourceSpec audio;
+    QString resolveError;
+    if (!resolveChannelSources(m_videoSources, m_audioSources, videoIndex, audioIndex, &video, &audio,
+                               &resolveError)) {
+        Q_EMIT errorOccurred(resolveError);
+        return false;
+    }
+
+    QString error;
+    if (!svc->updateChannel(channelId, name, video, audio, bitrateKbps, &error)) {
+        Q_EMIT errorOccurred(error.isEmpty() ? QStringLiteral("Failed to update channel") : error);
+        return false;
+    }
+    refreshChannels();
+    return true;
+}
+
+int AdminController::videoSourceIndexForLocation(const QString &location) const
+{
+    if (location.isEmpty())
+        return 0;
+    for (int i = 0; i < m_videoSources.size(); ++i) {
+        if (m_videoSources.at(i).toMap().value(QStringLiteral("location")).toString() == location)
+            return i + 1;
+    }
+    return 0;
+}
+
+int AdminController::audioSourceIndexForLocation(const QString &location) const
+{
+    if (location.isEmpty())
+        return 0;
+    for (int i = 0; i < m_audioSources.size(); ++i) {
+        if (m_audioSources.at(i).toMap().value(QStringLiteral("location")).toString() == location)
+            return i + 1;
+    }
+    return 0;
 }
 
 bool AdminController::removeChannel(const QString &channelId)

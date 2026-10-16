@@ -138,6 +138,9 @@ QVariantList ChannelService::listForAdmin() const
         const int bitrate = channel->adminBitrateKbps > 0 ? channel->adminBitrateKbps
                                                           : m_defaultBitrateKbps;
         row.insert(QStringLiteral("bitrateKbps"), bitrate);
+        row.insert(QStringLiteral("currentBandwidthKbps"), targetBitrateKbpsLocked(*channel));
+        row.insert(QStringLiteral("videoLocation"), channel->video.location);
+        row.insert(QStringLiteral("audioLocation"), channel->audio.location);
         out.append(row);
     }
     return out;
@@ -182,6 +185,56 @@ QString ChannelService::addChannel(const QString &name, const SourceSpec &video,
     Q_EMIT channelsChanged();
     qCInfo(lcApp) << "Channel added" << channel->id << channel->name;
     return channel->id;
+}
+
+bool ChannelService::updateChannel(const QString &channelId, const QString &name,
+                                   const SourceSpec &video, const SourceSpec &audio,
+                                   int bitrateKbps, QString *error)
+{
+    const QString trimmed = name.trimmed();
+    if (trimmed.isEmpty()) {
+        if (error)
+            *error = QStringLiteral("Channel name is required");
+        return false;
+    }
+    if (video.location.isEmpty() && audio.location.isEmpty()) {
+        if (error)
+            *error = QStringLiteral("Pick at least a video or audio source");
+        return false;
+    }
+
+    Channel *channel = nullptr;
+    {
+        QMutexLocker locker(&m_mutex);
+        channel = m_channels.value(channelId);
+        if (!channel) {
+            if (error)
+                *error = QStringLiteral("Unknown channel");
+            return false;
+        }
+        const bool wasRunning = channel->publisher && channel->publisher->isRunning();
+        channel->name = trimmed;
+        channel->video = video;
+        channel->audio = audio;
+        channel->adminBitrateKbps = bitrateKbps > 0 ? clampBitrateKbps(bitrateKbps) : 0;
+        if (wasRunning) {
+            stopLocked(*channel);
+            if (!startLocked(*channel, error)) {
+                channel->wantRunning = false;
+                saveStore();
+                return false;
+            }
+            channel->wantRunning = true;
+        } else {
+            applyChannelBitrateLocked(*channel);
+        }
+        saveStore();
+    }
+
+    broadcastEvent(proto::ChannelEvt::UPDATED, *channel);
+    Q_EMIT channelsChanged();
+    qCInfo(lcApp) << "Channel updated" << channelId << trimmed;
+    return true;
 }
 
 bool ChannelService::removeChannel(const QString &channelId, QString *error)
@@ -408,6 +461,8 @@ proto::ChannelInfo ChannelService::toInfo(const Channel &channel) const
     info.set_audio_label((channel.audio.displayName.isEmpty() ? channel.audio.location
                                                               : channel.audio.displayName)
                              .toStdString());
+    info.set_viewer_count(uint32_t(channel.viewers.size()));
+    info.set_bitrate_kbps(uint32_t(targetBitrateKbpsLocked(channel)));
     return info;
 }
 

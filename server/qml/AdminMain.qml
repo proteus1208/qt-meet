@@ -451,87 +451,30 @@ ApplicationWindow {
 
                 // 2 — Channels
                 ColumnLayout {
-                    spacing: 12
-
-                    Label {
-                        Layout.fillWidth: true
-                        wrapMode: Text.Wrap
-                        text: qsTr("Create a channel with video only, audio only, or both. System output appears in the audio list.")
-                        color: window.theme.textMuted
-                        font.pixelSize: 13
-                    }
-
-                    TextField {
-                        id: channelName
-                        Layout.fillWidth: true
-                        placeholderText: qsTr("Channel name")
-                        color: window.theme.text
-                        enabled: Admin.running
-                        background: Rectangle {
-                            radius: window.theme.radiusSm
-                            color: window.theme.surfaceAlt
-                            border.color: window.theme.border
-                            border.width: 1
-                        }
-                    }
-
-                    Label {
-                        text: qsTr("Video source")
-                        color: window.theme.textMuted
-                        font.pixelSize: 11
-                    }
-                    ComboBox {
-                        id: videoSourceBox
-                        Layout.fillWidth: true
-                        model: Admin.videoSourceLabels
-                        enabled: Admin.running
-                    }
-                    Label {
-                        text: qsTr("Audio source (mic or system output)")
-                        color: window.theme.textMuted
-                        font.pixelSize: 11
-                    }
-                    ComboBox {
-                        id: audioSourceBox
-                        Layout.fillWidth: true
-                        model: Admin.audioSourceLabels
-                        enabled: Admin.running
-                    }
-
-                    Label {
-                        text: qsTr("Channel bitrate: %1 kbps").arg(Math.round(newChannelBitrate.value))
-                        color: window.theme.textMuted
-                        font.pixelSize: 11
-                    }
-                    Slider {
-                        id: newChannelBitrate
-                        Layout.fillWidth: true
-                        from: 200
-                        to: 4000
-                        stepSize: 50
-                        value: Admin.defaultChannelBitrateKbps
-                        enabled: Admin.running
-                    }
+                    spacing: 16
 
                     RowLayout {
                         Layout.fillWidth: true
-                        spacing: 8
-                        Button {
-                            text: qsTr("Refresh devices")
-                            onClicked: Admin.refreshSources()
+                        spacing: 12
+                        Label {
+                            Layout.fillWidth: true
+                            wrapMode: Text.Wrap
+                            text: qsTr("Live IPTV channels. Preview status at a glance — create or edit in the dialog.")
+                            color: window.theme.textMuted
+                            font.pixelSize: 13
                         }
-                        Item { Layout.fillWidth: true }
                         Button {
-                            text: qsTr("Add channel")
-                            enabled: Admin.running && channelName.text.trim().length > 0
-                                     && (videoSourceBox.currentIndex > 0 || audioSourceBox.currentIndex > 0)
+                            text: qsTr("Refresh")
+                            enabled: Admin.running
                             onClicked: {
-                                if (Admin.addChannel(channelName.text.trim(),
-                                                     videoSourceBox.currentIndex,
-                                                     audioSourceBox.currentIndex,
-                                                     Math.round(newChannelBitrate.value)))
-                                    channelName.text = ""
+                                Admin.refreshSources()
+                                Admin.refreshChannels()
                             }
+                        }
+                        Button {
+                            text: qsTr("+ Add channel")
+                            enabled: Admin.running
+                            onClicked: channelEditor.openCreate()
                         }
                     }
 
@@ -539,76 +482,102 @@ ApplicationWindow {
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         clip: true
-                        spacing: 8
+                        spacing: 12
                         model: Admin.channels
 
                         delegate: Rectangle {
                             id: chDelegate
                             required property var modelData
                             width: ListView.view.width
-                            height: chCol.implicitHeight + 20
-                            radius: window.theme.radiusSm
+                            height: chInner.implicitHeight + 28
+                            radius: window.theme.radius
                             color: window.theme.surface
-                            border.color: window.theme.border
+                            border.color: chDelegate.modelData.running
+                                          ? window.theme.success : window.theme.border
                             border.width: 1
 
                             ColumnLayout {
-                                id: chCol
+                                id: chInner
                                 anchors.left: parent.left
                                 anchors.right: parent.right
                                 anchors.top: parent.top
-                                anchors.margins: 12
-                                spacing: 6
+                                anchors.margins: 16
+                                spacing: 10
 
+                                // Title row — channel name as hero
                                 RowLayout {
                                     Layout.fillWidth: true
+                                    spacing: 12
                                     Label {
                                         Layout.fillWidth: true
-                                        text: chDelegate.modelData.name || ""
+                                        text: chDelegate.modelData.name || qsTr("Channel")
                                         color: window.theme.text
+                                        font.pixelSize: 22
                                         font.bold: true
-                                        font.pixelSize: 14
                                         elide: Text.ElideRight
                                     }
-                                    Label {
-                                        text: chDelegate.modelData.running ? qsTr("LIVE") : qsTr("Off")
+                                    Rectangle {
+                                        width: liveLbl.implicitWidth + 16
+                                        height: 26
+                                        radius: 13
                                         color: chDelegate.modelData.running
-                                               ? window.theme.success : window.theme.textDim
-                                        font.pixelSize: 11
-                                        font.bold: true
+                                               ? window.theme.successSoft : window.theme.surfaceAlt
+                                        border.color: chDelegate.modelData.running
+                                                      ? window.theme.success : window.theme.border
+                                        border.width: 1
+                                        Label {
+                                            id: liveLbl
+                                            anchors.centerIn: parent
+                                            text: chDelegate.modelData.running ? qsTr("LIVE") : qsTr("OFF")
+                                            color: chDelegate.modelData.running
+                                                   ? window.theme.success : window.theme.textDim
+                                            font.pixelSize: 11
+                                            font.bold: true
+                                        }
                                     }
                                 }
-                                Label {
+
+                                // Status line — title-style meta
+                                RowLayout {
                                     Layout.fillWidth: true
-                                    text: qsTr("Video: %1").arg(chDelegate.modelData.videoLabel || "—")
-                                    color: window.theme.textMuted
-                                    font.pixelSize: 11
-                                    elide: Text.ElideRight
+                                    spacing: 18
+                                    Label {
+                                        text: qsTr("%1 visitors")
+                                              .arg(chDelegate.modelData.viewers || 0)
+                                        color: window.theme.text
+                                        font.pixelSize: 14
+                                        font.bold: true
+                                    }
+                                    Label {
+                                        text: "·"
+                                        color: window.theme.textDim
+                                    }
+                                    Label {
+                                        text: qsTr("%1 kbps")
+                                              .arg(chDelegate.modelData.currentBandwidthKbps
+                                                   || chDelegate.modelData.bitrateKbps
+                                                   || Admin.defaultChannelBitrateKbps)
+                                        color: window.theme.text
+                                        font.pixelSize: 14
+                                        font.bold: true
+                                    }
+                                    Label {
+                                        text: "·"
+                                        color: window.theme.textDim
+                                    }
+                                    Label {
+                                        Layout.fillWidth: true
+                                        text: {
+                                            const v = chDelegate.modelData.videoLabel || "—"
+                                            const a = chDelegate.modelData.audioLabel || "—"
+                                            return qsTr("Video %1 · Audio %2").arg(v).arg(a)
+                                        }
+                                        color: window.theme.textMuted
+                                        font.pixelSize: 13
+                                        elide: Text.ElideRight
+                                    }
                                 }
-                                Label {
-                                    Layout.fillWidth: true
-                                    text: qsTr("Audio: %1 · Viewers %2")
-                                          .arg(chDelegate.modelData.audioLabel || "—")
-                                          .arg(chDelegate.modelData.viewers || 0)
-                                    color: window.theme.textMuted
-                                    font.pixelSize: 11
-                                    elide: Text.ElideRight
-                                }
-                                Label {
-                                    Layout.fillWidth: true
-                                    text: qsTr("Bitrate: %1 kbps").arg(chDelegate.modelData.bitrateKbps || Admin.defaultChannelBitrateKbps)
-                                    color: window.theme.textMuted
-                                    font.pixelSize: 11
-                                }
-                                Slider {
-                                    Layout.fillWidth: true
-                                    from: 200
-                                    to: 4000
-                                    stepSize: 50
-                                    value: chDelegate.modelData.bitrateKbps || Admin.defaultChannelBitrateKbps
-                                    enabled: Admin.running
-                                    onMoved: Admin.setChannelBitrate(chDelegate.modelData.id, Math.round(value))
-                                }
+
                                 RowLayout {
                                     spacing: 8
                                     Button {
@@ -622,6 +591,12 @@ ApplicationWindow {
                                         }
                                     }
                                     Button {
+                                        text: qsTr("Edit")
+                                        enabled: Admin.running
+                                        onClicked: channelEditor.openEdit(chDelegate.modelData)
+                                    }
+                                    Item { Layout.fillWidth: true }
+                                    Button {
                                         text: qsTr("Remove")
                                         enabled: Admin.running
                                         onClicked: Admin.removeChannel(chDelegate.modelData.id)
@@ -633,11 +608,12 @@ ApplicationWindow {
 
                     Label {
                         visible: Admin.channels.length === 0
+                        Layout.alignment: Qt.AlignHCenter
                         text: Admin.running
-                              ? qsTr("No channels yet — add one above.")
+                              ? qsTr("No channels yet — press Add channel.")
                               : qsTr("Start the service first, then add live channels.")
                         color: window.theme.textDim
-                        font.pixelSize: 12
+                        font.pixelSize: 13
                     }
                 }
 
@@ -903,9 +879,157 @@ ApplicationWindow {
         }
     }
 
+    Dialog {
+        id: channelEditor
+        property string editId: ""
+        property bool isEdit: editId.length > 0
+
+        parent: Overlay.overlay
+        anchors.centerIn: parent
+        modal: true
+        focus: true
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+        title: isEdit ? qsTr("Edit channel") : qsTr("Create channel")
+        width: Math.min(480, window.width - 48)
+        padding: 20
+
+        background: Rectangle {
+            radius: window.theme.radius
+            color: window.theme.surface
+            border.color: window.theme.border
+            border.width: 1
+        }
+
+        Overlay.modal: Rectangle {
+            color: "#99000000"
+        }
+
+        function openCreate() {
+            editId = ""
+            nameField.text = ""
+            Admin.refreshSources()
+            videoBox.currentIndex = 0
+            audioBox.currentIndex = 0
+            bitrateSlider.value = Admin.defaultChannelBitrateKbps
+            open()
+            nameField.forceActiveFocus()
+        }
+
+        function openEdit(row) {
+            editId = row.id || ""
+            nameField.text = row.name || ""
+            Admin.refreshSources()
+            videoBox.currentIndex = Admin.videoSourceIndexForLocation(row.videoLocation || "")
+            audioBox.currentIndex = Admin.audioSourceIndexForLocation(row.audioLocation || "")
+            bitrateSlider.value = row.bitrateKbps || Admin.defaultChannelBitrateKbps
+            open()
+            nameField.forceActiveFocus()
+        }
+
+        function save() {
+            const name = nameField.text.trim()
+            if (name.length === 0)
+                return
+            const ok = isEdit
+                       ? Admin.updateChannel(editId, name, videoBox.currentIndex,
+                                             audioBox.currentIndex, Math.round(bitrateSlider.value))
+                       : Admin.addChannel(name, videoBox.currentIndex, audioBox.currentIndex,
+                                          Math.round(bitrateSlider.value))
+            if (ok)
+                close()
+        }
+
+        ColumnLayout {
+            width: channelEditor.availableWidth
+            spacing: 12
+
+            Label {
+                Layout.fillWidth: true
+                wrapMode: Text.Wrap
+                text: qsTr("Video only, audio only, or both. System output is in the audio list.")
+                color: window.theme.textMuted
+                font.pixelSize: 12
+            }
+
+            TextField {
+                id: nameField
+                Layout.fillWidth: true
+                placeholderText: qsTr("Channel name")
+                color: window.theme.text
+                background: Rectangle {
+                    radius: window.theme.radiusSm
+                    color: window.theme.surfaceAlt
+                    border.color: window.theme.border
+                    border.width: 1
+                }
+            }
+
+            Label {
+                text: qsTr("Video source")
+                color: window.theme.textMuted
+                font.pixelSize: 11
+            }
+            ComboBox {
+                id: videoBox
+                Layout.fillWidth: true
+                model: Admin.videoSourceLabels
+            }
+
+            Label {
+                text: qsTr("Audio source (mic or system output)")
+                color: window.theme.textMuted
+                font.pixelSize: 11
+            }
+            ComboBox {
+                id: audioBox
+                Layout.fillWidth: true
+                model: Admin.audioSourceLabels
+            }
+
+            Label {
+                text: qsTr("Bitrate: %1 kbps").arg(Math.round(bitrateSlider.value))
+                color: window.theme.textMuted
+                font.pixelSize: 11
+            }
+            Slider {
+                id: bitrateSlider
+                Layout.fillWidth: true
+                from: 200
+                to: 4000
+                stepSize: 50
+                value: Admin.defaultChannelBitrateKbps
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                spacing: 8
+                Button {
+                    text: qsTr("Refresh devices")
+                    onClicked: {
+                        const vLoc = videoBox.currentIndex > 0
+                                     ? (Admin.videoSourceLabels[videoBox.currentIndex] || "")
+                                     : ""
+                        Admin.refreshSources()
+                    }
+                }
+                Item { Layout.fillWidth: true }
+                Button {
+                    text: qsTr("Cancel")
+                    onClicked: channelEditor.close()
+                }
+                Button {
+                    text: channelEditor.isEdit ? qsTr("Save") : qsTr("Create")
+                    enabled: nameField.text.trim().length > 0
+                             && (videoBox.currentIndex > 0 || audioBox.currentIndex > 0)
+                    onClicked: channelEditor.save()
+                }
+            }
+        }
+    }
+
     Rectangle {
         id: toast
-        anchors.left: parent.left
+        anchors.horizontalCenter: parent.horizontalCenter
         anchors.bottom: parent.bottom
         anchors.margins: 24
         width: Math.min(toastLabel.implicitWidth + 72, parent.width - 48)
@@ -934,6 +1058,7 @@ ApplicationWindow {
             font.pixelSize: 13
             elide: Text.ElideRight
             verticalAlignment: Text.AlignVCenter
+            horizontalAlignment: Text.AlignHCenter
         }
 
         Timer {

@@ -1,15 +1,19 @@
 # libdatachannel (WebRTC transport).
 # Override with env DATACHANNEL_DIR = prefix containing include/ and lib/.
+#
+# Qt MinGW MUST use a MinGW-built DLL (e.g. C:/libs/libdatachannel-mingw64).
+# UCRT builds (C:/libs/libdatachannel, D:/libs/libdatachannel) cause nanosleep64.
 
 DATACHANNEL_DIR = $$(DATACHANNEL_DIR)
 
-# Windows defaults (same pattern as PROTOBUF_DIR / FFMPEG_DIR). First existing wins.
+# Prefer MinGW installs only — never auto-pick UCRT prefixes.
 win32:isEmpty(DATACHANNEL_DIR) {
-    exists(D:/libs/libdatachannel/include/rtc): DATACHANNEL_DIR = D:/libs/libdatachannel
-    else: exists(D:/libdatachannel/include/rtc): DATACHANNEL_DIR = D:/libdatachannel
-    else: exists(D:/Apps/libdatachannel/include/rtc): DATACHANNEL_DIR = D:/Apps/libdatachannel
-    else: exists(C:/libs/libdatachannel-qtmingw/include/rtc): DATACHANNEL_DIR = C:/libs/libdatachannel-qtmingw
-    else: exists(C:/libs/libdatachannel-mingw64/include/rtc): DATACHANNEL_DIR = C:/libs/libdatachannel-mingw64
+    exists(C:/libs/libdatachannel-mingw64/include/rtc): \
+        DATACHANNEL_DIR = C:/libs/libdatachannel-mingw64
+    else: exists(C:/libs/libdatachannel-qtmingw/include/rtc): \
+        DATACHANNEL_DIR = C:/libs/libdatachannel-qtmingw
+    else: exists(D:/libs/libdatachannel-mingw64/include/rtc): \
+        DATACHANNEL_DIR = D:/libs/libdatachannel-mingw64
 }
 
 isEmpty(DATACHANNEL_DIR) {
