@@ -17,7 +17,6 @@ class ChatModel;
 class ConversationModel;
 class ExplorerController;
 class FileTransfer;
-class MediaPlayer;
 class NetworkClient;
 class ParticipantModel;
 class RemoteFsModel;
@@ -57,7 +56,6 @@ private:
 
     std::unique_ptr<FileTransfer>       m_fileTransfer;
     std::unique_ptr<CallEngine>         m_callEngine;
-    std::unique_ptr<MediaPlayer>        m_player;
 
     std::unique_ptr<SessionController>  m_session;
     std::unique_ptr<ChatController>     m_chat;

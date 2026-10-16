@@ -15,17 +15,13 @@ namespace qm {
 
 ExplorerController::ExplorerController(NetworkClient *network, SessionController *session,
                                        FileTransfer *transfers, RemoteFsModel *files,
-                                       MediaPlayer *player, QObject *parent)
+                                       QObject *parent)
     : QObject(parent)
     , m_network(network)
     , m_session(session)
     , m_transfers(transfers)
     , m_files(files)
-    , m_player(player)
 {
-    if (m_player)
-        connect(m_player, &MediaPlayer::errorOccurred, this, &ExplorerController::errorOccurred);
-
     if (m_transfers) {
         connect(m_transfers, &FileTransfer::downloaded, this,
                 [this](const QString &id, const QString &localPath) {
@@ -46,6 +42,7 @@ ExplorerController::ExplorerController(NetworkClient *network, SessionController
             m_latestListSeq = 0;
             m_files->clear();
             m_currentPath.clear();
+            clearMedia();
             Q_EMIT currentPathChanged();
             return;
         }
@@ -74,9 +71,9 @@ bool ExplorerController::busy() const
     return m_busy;
 }
 
-MediaPlayer *ExplorerController::player() const
+QUrl ExplorerController::mediaUrl() const
 {
-    return m_player;
+    return m_mediaUrl;
 }
 
 void ExplorerController::refresh()
@@ -216,12 +213,24 @@ void ExplorerController::goUp()
 
 void ExplorerController::openMedia(const QUrl &url)
 {
-    if (!m_player || url.isEmpty())
+    if (url.isEmpty())
         return;
-    // Only set the source here. PlayerPage attaches VideoOutput's sink then calls play();
-    // starting earlier drops every video frame (sink is null) while audio keeps running → black picture.
-    m_player->setSource(url);
+    if (m_mediaUrl == url) {
+        // Force PlayerPage to reload the same clip if opened again.
+        m_mediaUrl.clear();
+        Q_EMIT mediaUrlChanged();
+    }
+    m_mediaUrl = url;
+    Q_EMIT mediaUrlChanged();
     Q_EMIT playRequested(url.fileName().isEmpty() ? url.toString() : url.fileName());
+}
+
+void ExplorerController::clearMedia()
+{
+    if (m_mediaUrl.isEmpty())
+        return;
+    m_mediaUrl.clear();
+    Q_EMIT mediaUrlChanged();
 }
 
 void ExplorerController::onListing(const proto::DirListRes &listing)

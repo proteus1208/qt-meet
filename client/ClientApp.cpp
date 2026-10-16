@@ -11,7 +11,6 @@
 #include "core/CallEngine.h"
 #include "core/FileTransfer.h"
 #include "core/NetworkClient.h"
-#include "media/MediaPlayer.h"
 #include "models/ChatModel.h"
 #include "models/ConversationModel.h"
 #include "models/ParticipantModel.h"
@@ -39,7 +38,6 @@ void ClientApp::registerQml()
     qmlRegisterSingletonInstance("QtMeet", 1, 0, "Chat", m_chat.get());
     qmlRegisterSingletonInstance("QtMeet", 1, 0, "Call", m_call.get());
     qmlRegisterSingletonInstance("QtMeet", 1, 0, "Explorer", m_explorer.get());
-    qmlRegisterType<MediaPlayer>("QtMeet", 1, 0, "MediaPlayer");
 }
 
 void ClientApp::start()
@@ -67,7 +65,6 @@ void ClientApp::buildComponents()
 
     m_fileTransfer = std::make_unique<FileTransfer>(m_network.get(), m_transfers.get());
     m_callEngine = std::make_unique<CallEngine>(m_network.get(), m_monitor.get(), RtcConfig{});
-    m_player = std::make_unique<MediaPlayer>();
 
     m_session = std::make_unique<SessionController>(m_network.get());
     m_session->setServerHost(m_settings.serverHost.isEmpty()
@@ -80,8 +77,7 @@ void ClientApp::buildComponents()
     m_call = std::make_unique<CallController>(m_network.get(), m_session.get(), m_callEngine.get(),
                                               m_participants.get());
     m_explorer = std::make_unique<ExplorerController>(m_network.get(), m_session.get(),
-                                                      m_fileTransfer.get(), m_remoteFiles.get(),
-                                                      m_player.get());
+                                                      m_fileTransfer.get(), m_remoteFiles.get());
 
     connect(m_session.get(), &SessionController::sessionChanged, this, [this] {
         if (!m_session->loggedIn() || !m_callEngine)

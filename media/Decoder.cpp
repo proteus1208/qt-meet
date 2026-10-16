@@ -7,6 +7,7 @@ extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavutil/hwcontext.h>
 #include <libavutil/opt.h>
+#include <libavutil/pixdesc.h>
 }
 
 namespace qm {
@@ -177,7 +178,13 @@ enum AVPixelFormat Decoder::getHwFormat(AVCodecContext *ctx, const enum AVPixelF
         if (*p == want)
             return *p;
     }
-    return pix_fmts[0];
+    // Prefer a software format over a mismatched HW surface (avoids black frames).
+    for (const enum AVPixelFormat *p = pix_fmts; *p != AV_PIX_FMT_NONE; ++p) {
+        const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(*p);
+        if (desc && !(desc->flags & AV_PIX_FMT_FLAG_HWACCEL))
+            return *p;
+    }
+    return AV_PIX_FMT_NONE;
 }
 
 bool Decoder::setupHardware(HwDevice device)
@@ -233,6 +240,23 @@ MediaResult Decoder::receive(AVFrame *frame)
         return MediaResult::Eof;
     if (err < 0)
         return MediaResult::Error;
+
+    // Always hand system-memory frames to callers (QVideoFrame / swscale cannot map D3D11).
+    const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(AVPixelFormat(frame->format));
+    if (desc && (desc->flags & AV_PIX_FMT_FLAG_HWACCEL)) {
+        AVFrame *sw = av_frame_alloc();
+        if (!sw)
+            return MediaResult::Error;
+        if (av_hwframe_transfer_data(sw, frame, 0) < 0) {
+            av_frame_free(&sw);
+            qCWarning(lcMedia) << "av_hwframe_transfer_data failed";
+            return MediaResult::Error;
+        }
+        av_frame_copy_props(sw, frame);
+        av_frame_unref(frame);
+        av_frame_move_ref(frame, sw);
+        av_frame_free(&sw);
+    }
     return MediaResult::Ok;
 }
 

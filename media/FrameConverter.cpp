@@ -2,6 +2,7 @@
 
 #include <cstring>
 
+#include <QtGlobal>
 #include <QVideoFrameFormat>
 
 extern "C" {
@@ -83,18 +84,33 @@ QVideoFrame FrameConverter::toVideoFrame(const AVFrame *frame)
         return {};
 
     if (format == AV_PIX_FMT_YUV420P || format == AV_PIX_FMT_YUVJ420P) {
+        if (!src->data[0] || !src->data[1] || !src->data[2]) {
+            videoFrame.unmap();
+            return {};
+        }
+        const int yBytes = qMin(videoFrame.bytesPerLine(0), src->linesize[0] > 0 ? src->linesize[0] : src->width);
+        const int uBytes = qMin(videoFrame.bytesPerLine(1), src->linesize[1] > 0 ? src->linesize[1] : src->width / 2);
+        const int vBytes = qMin(videoFrame.bytesPerLine(2), src->linesize[2] > 0 ? src->linesize[2] : src->width / 2);
         copyPlane(videoFrame.bits(0), videoFrame.bytesPerLine(0), src->data[0], src->linesize[0],
-                  src->height, src->width);
+                  src->height, qMin(yBytes, src->width));
         copyPlane(videoFrame.bits(1), videoFrame.bytesPerLine(1), src->data[1], src->linesize[1],
-                  src->height / 2, src->width / 2);
+                  src->height / 2, qMin(uBytes, src->width / 2));
         copyPlane(videoFrame.bits(2), videoFrame.bytesPerLine(2), src->data[2], src->linesize[2],
-                  src->height / 2, src->width / 2);
+                  src->height / 2, qMin(vBytes, src->width / 2));
     } else if (format == AV_PIX_FMT_NV12) {
+        if (!src->data[0] || !src->data[1]) {
+            videoFrame.unmap();
+            return {};
+        }
         copyPlane(videoFrame.bits(0), videoFrame.bytesPerLine(0), src->data[0], src->linesize[0],
-                  src->height, src->width);
+                  src->height, qMin(src->width, src->linesize[0] > 0 ? src->linesize[0] : src->width));
         copyPlane(videoFrame.bits(1), videoFrame.bytesPerLine(1), src->data[1], src->linesize[1],
-                  src->height / 2, src->width);
+                  src->height / 2, qMin(src->width, src->linesize[1] > 0 ? src->linesize[1] : src->width));
     } else {
+        if (!src->data[0]) {
+            videoFrame.unmap();
+            return {};
+        }
         const int bpp = (format == AV_PIX_FMT_BGRA || format == AV_PIX_FMT_RGBA) ? 4 : 3;
         copyPlane(videoFrame.bits(0), videoFrame.bytesPerLine(0), src->data[0], src->linesize[0],
                   src->height, src->width * bpp);

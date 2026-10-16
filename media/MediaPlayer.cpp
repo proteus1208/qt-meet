@@ -8,6 +8,7 @@
 #include <QThread>
 #include <QTimer>
 #include <QUrl>
+#include <QVideoFrame>
 
 #include "AudioOutput.h"
 #include "Decoder.h"
@@ -83,7 +84,12 @@ public Q_SLOTS:
         m_audioStream = m_demux.bestStream(MediaType::Audio);
 
         if (m_videoStream >= 0) {
-            if (!m_videoDecoder.open(m_demux.codecParameters(m_videoStream), m_hwPolicy)) {
+            // File/HTTP player pushes CPU frames into QVideoFrame. D3D11VA/HEVC often
+            // yields black VideoOutput on Windows even when decode succeeds — prefer software.
+            HwPolicy policy = m_hwPolicy;
+            if (policy == HwPolicy::Auto)
+                policy = HwPolicy::SoftwareOnly;
+            if (!m_videoDecoder.open(m_demux.codecParameters(m_videoStream), policy)) {
                 Q_EMIT error(QStringLiteral("Cannot open video decoder"));
                 return;
             }
@@ -106,6 +112,7 @@ public Q_SLOTS:
         m_clock.reset(0);
         m_clockAnchorSet = false;
         m_convertFailLogged = false;
+        m_presentedLogged = false;
         Q_EMIT durationReady(m_durationUs / 1000);
         Q_EMIT positionChanged(0);
     }
@@ -172,6 +179,7 @@ Q_SIGNALS:
     void hardwareChanged(bool hardware);
     void error(const QString &message);
     void endOfMedia();
+    void frameReady(const QVideoFrame &frame); // delivered on GUI thread via queued connect
 
 private:
     void stopInternal()
@@ -326,11 +334,19 @@ private:
             if (!m_convertFailLogged) {
                 m_convertFailLogged = true;
                 qCWarning(lcMedia) << "Video frame convert failed (format"
-                                   << (frame ? frame->format : -1) << "); picture may stay black";
+                                   << (frame ? frame->format : -1) << " size"
+                                   << (frame ? frame->width : 0) << "x"
+                                   << (frame ? frame->height : 0)
+                                   << "); picture may stay black";
             }
             return;
         }
-        m_sink->setVideoFrame(vf);
+        if (!m_presentedLogged) {
+            m_presentedLogged = true;
+            qCInfo(lcMedia) << "Presenting video" << vf.size() << vf.pixelFormat();
+        }
+        // Push to GUI thread — QVideoSink/VideoOutput are more reliable there on Windows.
+        Q_EMIT frameReady(vf);
         if (!m_audioStream)
             Q_EMIT positionChanged(ptsUs / 1000);
     }
@@ -356,6 +372,7 @@ private:
     bool            m_paused = false;
     bool            m_clockAnchorSet = false;
     bool            m_convertFailLogged = false;
+    bool            m_presentedLogged = false;
 };
 
 MediaPlayer::MediaPlayer(QObject *parent)
@@ -391,6 +408,10 @@ MediaPlayer::MediaPlayer(QObject *parent)
         Q_EMIT errorOccurred(msg);
     });
     connect(m_engine, &PlaybackEngine::endOfMedia, this, &MediaPlayer::endOfMedia);
+    connect(m_engine, &PlaybackEngine::frameReady, this, [this](const QVideoFrame &frame) {
+        if (m_sink)
+            m_sink->setVideoFrame(frame);
+    }, Qt::QueuedConnection);
 
     m_thread.setObjectName(QStringLiteral("PlaybackThread"));
     m_thread.start();
